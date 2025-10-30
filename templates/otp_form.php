@@ -1,0 +1,55 @@
+<?php
+// templates/otp_form.php
+
+// This template has access to $config, $leadEventId, $phoneCapi, $errorMessage, etc.
+?>
+
+<script>
+    <?php if (!empty($phoneCapi)): ?>
+        // Re-init pixel with phone hash for Advanced Matching
+        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', { 
+            ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>' 
+        });
+    <?php endif; ?>
+
+    <?php if (!$isErrorRedirect && !empty($pageViewEventId)): ?>
+        // Fire the PageView event for the /otp page
+        fbq('track', 'PageView',
+            {},
+            { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
+        );
+    <?php endif; ?>
+    
+    <?php if (!empty($leadEventId)): ?>
+        // 2. Fire the Lead event (ONLY RUNS ONCE)
+        // This shares the eventID with the CAPI event
+        fbq('track', 'Lead', 
+            { ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>' },
+            { eventID: '<?php echo htmlspecialchars($leadEventId, ENT_QUOTES, 'UTF-8'); ?>' }
+        );
+    <?php endif; ?>
+</script>
+
+
+<section class="img-section">
+    <div class="img-container">
+        <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>" 
+             alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
+    </div>
+</section>
+
+<section class="form-section">
+	<form action="" method="post">
+		<span class="form-title">දුරකතන අංකය තහවුරු කිරීම</span>
+		<span class="form-text">ඔබගේ දුරකතන අංකය වෙත ලැබුනු PIN අංකය ඇතුළත් කරන්න</span>
+		
+        <?php if (isset($errorMessage)): ?>
+            <div class="alert alert-danger"><?php echo htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8'); ?></div>
+        <?php endif; ?>
+        
+		<input type="number" placeholder="Enter the pin" name="otp" required>
+		<input type="submit" value="Verify">
+		
+        <span>නැවත PIN අංකය ඉල්ලීමට <a href="/">මෙතන ඔබන්න.</a></span>
+	</form>
+</section>

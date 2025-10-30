@@ -1,0 +1,20 @@
+# Dependencies
+/vendor/
+
+# Environment configuration
+.env
+
+# Logs & Databases
+# These should not be in the web root anyway!
+/logs/
+*.log
+*.sqlite
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Public assets
+/public/assets/images
+
+.phpunit.result.cache

@@ -1,0 +1,34 @@
+<?php
+// templates/thanks.php
+
+// This template has access to $config, $regId, $phoneCapi, $eventData, etc.
+?>
+
+<script>
+    <?php if (!empty($phoneCapi)): ?>
+        // Re-init pixel with phone hash for Advanced Matching
+        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', { 
+            ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>' 
+        });
+    <?php endif; ?>
+
+    <?php if (!empty($regId)): ?>
+        // Fire the CompleteRegistration event, sharing eventID with CAPI
+        fbq('track', 'CompleteRegistration', 
+            <?php echo $eventData; // JSON data, e.g., {'currency': 'USD', 'value': 0.02} ?>,
+            { eventID: '<?php echo htmlspecialchars($regId, ENT_QUOTES, 'UTF-8'); ?>' }
+        );
+    <?php endif; ?>
+</script>
+
+
+<section class="img-section">
+    <div class="img-container">
+        <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>" 
+             alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
+    </div>
+</section>
+
+<section>
+	<div class="alert alert-success">ඔබගේ ලියාපදිංචිය තහවුරු කිරීමට ඔබගේ දුරකතන අංකයට කෙටි පණිවිඩයක් මඟින් දැනුම් දෙනු ලැබේ</div>
+</section>
