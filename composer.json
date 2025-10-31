@@ -16,7 +16,8 @@
         "codeception/codeception": "^5.3",
         "codeception/module-phpbrowser": "^3.0",
         "codeception/module-asserts": "*",
-        "mockery/mockery": "^1.6"
+        "mockery/mockery": "^1.6",
+        "codeception/module-webdriver": "^4.0"
     },
     "autoload-dev": {
         "psr-4": {

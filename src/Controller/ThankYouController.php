@@ -4,17 +4,24 @@
 namespace App\Controller;
 
 use App\Service\FacebookCapiService;
+use Psr\Log\LoggerInterface;
 use App\Utils\Helpers;
 
 class ThankYouController
 {
     private array $config;
     private FacebookCapiService $capiService;
+    private LoggerInterface $logger;
 
-    public function __construct(array $config)
+    public function __construct(
+        array $config,
+        FacebookCapiService $capiService,
+        LoggerInterface $logger
+    )
     {
         $this->config = $config;
-        $this->capiService = new FacebookCapiService($config);
+        $this->capiService = $capiService;
+        $this->logger = $logger;
     }
 
     /**
@@ -32,6 +39,22 @@ class ThankYouController
         $regId = $_SESSION['reg_id'];
         $phoneData = $_SESSION['phone_data'];
         $userInfo = Helpers::getUserInfo();
+        
+        $pageViewEventId = "pgview-thanks-" . uniqid();
+        $_SESSION['page_view_id_thanks'] = $pageViewEventId;
+
+        $this->logger->info('New PageView triggered. /thanks', [
+            'page_view_id' => $pageViewEventId
+        ]);
+
+        // Fire the PageView CAPI event
+        $this->capiService->sendEvent(
+            'PageView',
+            $pageViewEventId,
+            Helpers::getCurrentUrl(),
+            $userInfo['ip'],
+            $userInfo['useragent']
+        );
 
         // 3. Prepare Event Data
         $customData = [
@@ -55,6 +78,7 @@ class ThankYouController
             'config' => $this->config,
             'pixelId' => $this->config['facebook']['pixel_id'],
             'testEventCode' => $this->config['facebook']['test_event_code'],
+            'pageViewEventId' => $pageViewEventId,
             'regId' => $regId, // For Pixel deduplication
             'phoneCapi' => $phoneData['capi_format'], // For Pixel Advanced Matching
             'eventData' => json_encode($customData) // For Pixel event

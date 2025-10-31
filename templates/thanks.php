@@ -12,6 +12,14 @@
         });
     <?php endif; ?>
 
+    <?php if (!empty($pageViewEventId)): ?>
+        // Fire the PageView event for the /thanks page
+        fbq('track', 'PageView',
+            {},
+            { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
+        );
+    <?php endif; ?>
+
     <?php if (!empty($regId)): ?>
         // Fire the CompleteRegistration event, sharing eventID with CAPI
         fbq('track', 'CompleteRegistration', 

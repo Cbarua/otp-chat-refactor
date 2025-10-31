@@ -82,9 +82,23 @@ $container['FacebookCapiService'] = function ($c) {
 
 // 6. Manage Long-Lived Visitor ID
 $visitorId = null;
-if (isset($_COOKIE['visitor_id'])) {
+if (isset($_SESSION['visitor_id'])) {
+    // ---
+    // Priority 1: Trust the server-side session first.
+    // This prevents a user from changing their ID mid-session.
+    // ---
+    $visitorId = $_SESSION['visitor_id'];
+} elseif (isset($_COOKIE['visitor_id'])) {
+    // ---
+    // Priority 2: Trust the long-term cookie.
+    // This is a returning user whose session has expired.
+    // ---
     $visitorId = $_COOKIE['visitor_id'];
 } else {
+    // ---
+    // Priority 3: This is a brand new user.
+    // Generate a new ID.
+    // ---
     $visitorId = uniqid('v_', true);
     // Set cookie before any output
     setcookie(
@@ -128,7 +142,8 @@ $container['OtpController'] = function ($c) {
 $container['ThankYouController'] = function ($c) {
     return new ThankYouController(
         $c['config'],
-        $c['FacebookCapiService']
+        $c['FacebookCapiService'],
+        $c['Logger']
     );
 };
 

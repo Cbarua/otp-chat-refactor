@@ -5,10 +5,17 @@
 ?>
 
 <script>
+    <?php if (!empty($phoneCapi)): ?>
+        // Re-init pixel with phone hash for Advanced Matching
+        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', { 
+            ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>' 
+        });
+    <?php endif; ?>
+    
     <?php
     // ONLY fire the PageView Pixel event if it's NOT an error redirect.
     // The CAPI event was already skipped in the controller.
-    if (empty($isErrorRedirect)) : 
+    if (!empty($pageViewEventId)) : 
     ?>
         fbq('track', 'PageView', 
             {}, // Custom data (optional)

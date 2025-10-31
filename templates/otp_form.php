@@ -12,7 +12,7 @@
         });
     <?php endif; ?>
 
-    <?php if (!$isErrorRedirect && !empty($pageViewEventId)): ?>
+    <?php if (!empty($pageViewEventId)): ?>
         // Fire the PageView event for the /otp page
         fbq('track', 'PageView',
             {},

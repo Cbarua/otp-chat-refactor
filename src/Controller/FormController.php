@@ -54,11 +54,13 @@ class FormController
 
         // Only fire PageView if not an error redirect
         if (!$isErrorRedirect) {
-            $this->logger->info('New PageView triggered. /');
-
             // Generate a unique PageView ID for FB events
             $pageViewEventId = "pgview-" . uniqid();
             $_SESSION['page_view_id'] = $pageViewEventId;
+            
+            $this->logger->info('New PageView triggered. /', [
+                'page_view_id' => $pageViewEventId
+            ]);
 
             // Fire the PageView CAPI event
             // I'll add visitor_id as external_id later
@@ -84,7 +86,7 @@ class FormController
             'testEventCode' => $this->config['facebook']['test_event_code'],
             'pixelId' => $this->config['facebook']['pixel_id'],
             'errorMessage' => $_SESSION['error_message'] ?? null,
-            'isErrorRedirect' => $isErrorRedirect
+            'phoneCapi' => $_SESSION['phone_data']['capi_format'] ?? null,
         ];
         
         // Clear the error message after displaying it
@@ -163,6 +165,7 @@ class FormController
             //
             if ($response['statusDetail'] === 'user already registered') {
                 $_SESSION['error_message'] = 'You are already registered!';
+                $_SESSION['phone_data'] = $phoneData;
             } else {
                 $_SESSION['error_message'] = 'An error occurred. Please try again later.';
             }

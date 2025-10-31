@@ -6,9 +6,31 @@
 actor: AcceptanceTester
 modules:
     enabled:
-        - PhpBrowser:
+        # - PhpBrowser:
+        #     url: http://otp-chat.test
+        - WebDriver:
+            # The URL of your application under test
             url: http://otp-chat.test
+            
+            # The host and port where msedgedriver is running
+            host: 127.0.0.1
+            port: 10888
+            
+            # Change browser from 'chrome' to 'MicrosoftEdge'
+            browser: MicrosoftEdge 
+            
+            # It forces W3C-standard communication (e.g., /session)
+            # instead of the old protocol (e.g., /wd/hub/session).
+            path: /
+            
+            # Browser-specific settings
+            capabilities:
+                # Change 'goog:chromeOptions' to 'ms:edgeOptions'
+                "ms:edgeOptions":
+                    args: ["--headless", "--disable-gpu", "--no-sandbox"]
         - \Tests\Support\Helper\Acceptance
+        # Add this line to enable commands like assertContains
+        - Asserts
 # Add Codeception\Step\Retry trait to AcceptanceTester to enable retries
 # step_decorators:
 #     - Codeception\Step\ConditionalAssertion

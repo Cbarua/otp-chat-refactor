@@ -47,11 +47,13 @@ class OtpController
         $pageViewEventId = null;
 
         if (!$isErrorRedirect) {
-            $this->logger->info('New PageView triggered. /otp');
-
             $pageViewEventId = "pgview-otp-" . uniqid();
             $_SESSION['page_view_id_otp'] = $pageViewEventId;
-
+            
+            $this->logger->info('New PageView triggered. /otp', [
+                'page_view_id' => $pageViewEventId
+            ]);
+            
             // Fire the PageView CAPI event
             $this->capiService->sendEvent(
                 'PageView',
@@ -90,6 +92,7 @@ class OtpController
         $data = [
             'config' => $this->config,
             'leadEventId' => $leadEventId,
+            'pageViewEventId' => $pageViewEventId,
             'phoneCapi' => $_SESSION['phone_data']['capi_format'], // For FB Lead Pixel
             'testEventCode' => $this->config['facebook']['test_event_code'],
             'pixelId' => $this->config['facebook']['pixel_id'],
