@@ -9,7 +9,9 @@
         "facebook/php-business-sdk": "^23.0",
         "guzzlehttp/guzzle": "^7.10",
         "pimple/pimple": "^3.5",
-        "monolog/monolog": "^3.9"
+        "monolog/monolog": "^3.9",
+        "nikic/fast-route": "^1.3",
+        "symfony/http-foundation": "^7.3"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5",
@@ -23,5 +25,22 @@
         "psr-4": {
             "Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "test:acceptanceWithDriver": [
+            "echo 'Starting Edge WebDriver on port 10888...'",
+            "start /B C:\\webdriver\\msedgedriver.exe --port=10888",
+            "echo 'Waiting 5 seconds for driver to initialize...'",
+            "powershell -Command \"Start-Sleep -Seconds 5\"",
+            "echo 'Running Codeception tests...'",
+            "vendor/bin/codecept run Acceptance",
+            "echo 'Stopping WebDriver...'",
+            "taskkill /IM msedgedriver.exe /F"
+        ],
+        "dev:edgedriver": "C:\\webdriver\\msedgedriver.exe --port=10888",
+        "test:acceptance": "vendor/bin/codecept run Acceptance",
+        "test:unit": "vendor/bin/phpunit --testdox",
+        "test:coverage": "set \"XDEBUG_MODE=coverage\" && .\\vendor\\bin\\phpunit --coverage-html coverage-report",
+        "test:stop": "taskkill /IM msedgedriver.exe /F"
     }
 }

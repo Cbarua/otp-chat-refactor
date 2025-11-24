@@ -1,47 +1,39 @@
 <?php
-// src/Utils/Helpers.php
+// src/Service/UserInfoService.php
 
-namespace App\Utils;
+namespace App\Service;
 
-/**
- * General-purpose helper functions.
- */
-class Helpers
+use Symfony\Component\HttpFoundation\Request;
+
+class UserInfoService
 {
     /**
-     * Gets the current page URL.
-     * @return string
+     * Retrieves client IP address using a specific header preference order.
+     * This replicates the logic from Helpers::getClientIp() but uses the Request object.
+     *
+     * @param Request $request The current Symfony Request object.
+     * @return string The client's IP address.
      */
-    public static function getCurrentUrl(): string
-    {
-        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $uri = $_SERVER['REQUEST_URI'] ?? '/';
-        return $protocol . $host . $uri;
-    }
-
-    /**
-     * Gets the client's IP address from various headers.
-     * @return string
-     */
-    public static function getClientIp(): string
+    private function getClientIpFromRequest(Request $request): string
     {
         // Headers to check, in order of preference.
-        // Added CF_CONNECTING_IP for Cloudflare support.
+        // Added CF_CONNECTING_IP for Cloudflare support, as in original Helpers.
         $ipHeaders = [
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_CLIENT_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_FORWARDED',
-            'HTTP_FORWARDED_FOR',
-            'HTTP_FORWARDED',
+            'CF-Connecting-IP', // Standard Cloudflare header
+            'CLIENT_IP',
+            'X_FORWARDED_FOR',
+            'X_FORWARDED',
+            'FORWARDED_FOR',
+            ',"FORWARDED',
             'REMOTE_ADDR'
         ];
 
         foreach ($ipHeaders as $header) {
-            if (!empty($_SERVER[$header])) {
+            // Request->server->get() checks for HTTP_ header prefixes automatically
+            $value = $request->headers->get($header) ?? $request->server->get('HTTP_' . $header, $request->server->get($header));
+            if (!empty($value)) {
                 // HTTP_X_FORWARDED_FOR can be a comma-separated list
-                $ip = explode(',', $_SERVER[$header])[0];
+                $ip = explode(',', $value)[0];
                 $ip = trim($ip);
                 if (filter_var($ip, FILTER_VALIDATE_IP)) {
                     return $ip;
@@ -52,12 +44,15 @@ class Helpers
     }
 
     /**
-     * Gathers basic user info for logging.
-     * @return array
+     * Gathers comprehensive user info from a Request object.
+     * This replicates the logic and output format from Helpers::getUserInfo().
+     *
+     * @param Request $request The current Symfony Request object.
+     * @return array An associative array containing 'os', 'device', 'ip', and 'useragent'.
      */
-    public static function getUserInfo(): array
+    public function get(Request $request): array
     {
-        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'UNKNOWN_UA';
+        $userAgent = $request->headers->get('User-Agent') ?? 'UNKNOWN_UA';
         $os = 'Unknown OS';
         $device = 'Unknown Device';
 
@@ -86,7 +81,7 @@ class Helpers
         return [
             'os' => $os,
             'device' => $device,
-            'ip' => self::getClientIp(),
+            'ip' => $this->getClientIpFromRequest($request),
             'useragent' => $userAgent
         ];
     }

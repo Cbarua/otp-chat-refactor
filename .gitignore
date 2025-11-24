@@ -15,6 +15,10 @@
 Thumbs.db
 
 # Public assets
-/public/assets/images
+# Ignore all images in public/assets/images by default
+/public/assets/images/*
+# But allow specific images to be committed 
+!public/assets/images/Girl in a salwar.jpeg
 
 .phpunit.result.cache
+coverage-report/

@@ -3,6 +3,8 @@
 
 namespace App\Utils;
 
+use Psr\Log\LoggerInterface;
+
 /**
  * Handles input validation and normalization.
  */
@@ -17,11 +19,11 @@ class Validator
      * @param string $countryCode The country to validate against (e.g., 'LK', 'BD')
      * @return array|null Returns structured data or null if invalid.
      */
-    public static function normalizePhone(string $rawPhone, array $carrierConfig, string $countryCode = 'LK'): ?array
+    public static function normalizePhone(string $rawPhone, array $carrierConfig, string $countryCode = 'LK', ?LoggerInterface $logger = null): ?array
     {
         // Country not configured
         if (!isset($carrierConfig[$countryCode])) {
-            error_log("Validation failed: Country code not configured. Country: " . $countryCode);
+            $logger?->warning("Validation failed: Country code not configured.", ['country' => $countryCode]);
             return null;
         }
         
@@ -34,7 +36,7 @@ class Validator
         $pattern = ($countryCode === 'LK') ? '/^07\d{8}$/' : '/^01\d{9}$/';
         
         if (!preg_match($pattern, $rawPhone)) {
-            error_log("Validation failed: Phone number format mismatch. Raw: " . $rawPhone);
+            $logger?->warning("Validation failed: Phone number format mismatch.", ['raw_phone' => $rawPhone]);
             return null;
         }
 

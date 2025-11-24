@@ -10,6 +10,7 @@ use FacebookAds\Object\ServerSide\Event;
 use FacebookAds\Object\ServerSide\EventRequest;
 use FacebookAds\Object\ServerSide\UserData;
 use Exception;
+use Psr\Log\LoggerInterface;
 
 /**
  * Manages all communication with the Facebook Conversions API (CAPI).
@@ -18,18 +19,18 @@ class FacebookCapiService
 {
     private string $pixelId;
     private ?string $testEventCode;
-    private string $logPath;
     private bool $apiInitialized = false;
+    private LoggerInterface $logger;
 
-    public function __construct(array $config)
+    public function __construct(array $config, LoggerInterface $logger)
     {
         $this->pixelId = $config['facebook']['pixel_id'];
         $accessToken = $config['facebook']['capi_token'];
         $this->testEventCode = $config['facebook']['test_event_code'] ?? null;
-        $this->logPath = $config['log_path']['capi'];
+        $this->logger = $logger;
 
         if (empty($this->pixelId) || empty($accessToken)) {
-            error_log('FacebookCapiService: Pixel ID or Access Token is missing.');
+            $this->logger->error('FacebookCapiService: Pixel ID or Access Token is missing.');
             return;
         }
 
@@ -37,7 +38,9 @@ class FacebookCapiService
             Api::init(null, null, $accessToken);
             $this->apiInitialized = true;
         } catch (Exception $e) {
-            error_log('FacebookCapiService Init Error: ' . $e->getMessage());
+            $this->logger->error('FacebookCapiService Init Error', [
+                'error' => $e->getMessage()
+            ]);
         }
     }
 
@@ -49,6 +52,30 @@ class FacebookCapiService
     private function hashIdentifier(string $value): string
     {
         return hash('sha256', strtolower(trim($value)));
+    }
+
+    /**
+     * Validates the format of Facebook cookies (fbp/fbc).
+     * Format: fb.1.TIMESTAMP.ID
+     *
+     * @param string|null $value
+     * @return bool
+     */
+    private function isValidFbCookie(?string $value): bool
+    {
+        if (empty($value)) {
+            return false;
+        }
+
+        // Regex Breakdown:
+        // ^fb\.      -> Must start with "fb."
+        // \d+        -> Followed by one or more digits (subdomain index)
+        // \.         -> A dot
+        // \d+        -> Timestamp (digits)
+        // \.         -> A dot
+        // [a-zA-Z0-9\._-]+ -> The ID (alphanumeric, dots, underscores, dashes allowed)
+        // $          -> End of string
+        return preg_match('/^fb\.\d+\.\d+\.[a-zA-Z0-9\._-]+$/', $value) === 1;
     }
 
     /**
@@ -70,20 +97,23 @@ class FacebookCapiService
         $userData->setClientIpAddress($clientIp);
         $userData->setClientUserAgent($clientUserAgent);
 
-        // Get fbp/fbc from session (set by controller) or cookies
-        $fbp = $_SESSION['fbp'] ?? $_COOKIE['_fbp'] ?? null;
-        if (!empty($fbp)) {
+        // Get fbp/fbc from cookies or session (set by controller)
+        $fbp = $_COOKIE['_fbp'] ?? $_SESSION['fbp'] ?? null;
+        // Validate format before using
+        if ($this->isValidFbCookie($fbp)) {
             $userData->setFbp($fbp);
         }
         
-        $fbc = $_SESSION['fbc'] ?? $_COOKIE['_fbc'] ?? null;
-        // Logic to generate fbc from fbclid is removed for simplicity.
-        // The controller should capture this from the query and store in session.
-        if (empty($fbc) && !empty($_GET['fbclid'])) {
-             $fbc = "fb.1." . round(microtime(true) * 1000) . "." . $_GET['fbclid'];
-             setcookie('_fbc', $fbc, time() + 90 * 86400, '/'); // Set for 90 days
+        $fbc = $_COOKIE['_fbc'] ?? $_SESSION['fbc'] ?? null;
+        // If fbc is not in cookies or session, try to generate it from the fbclid query parameter.
+        if (!$this->isValidFbCookie($fbc) && !empty($_GET['fbclid'])) { // fbclid is the Facebook Click ID
+            // Note: We strictly use 'fb.1.' here as we are creating it on domain index 1
+            $fbc = "fb.1." . round(microtime(true) * 1000) . "." . $_GET['fbclid'];
+            setcookie('_fbc', $fbc, time() + 90 * 86400, '/'); // Set for 90 days
         }
-        if (!empty($fbc)) {
+        
+        // Only set if we have a valid fbc now (either from cookie or just generated)
+        if ($this->isValidFbCookie($fbc)) {
             $userData->setFbc($fbc);
         }
 
@@ -101,7 +131,6 @@ class FacebookCapiService
      * @param string|null $phoneNormalized
      * @param array|null $customData (e.g., ['value' => 0.01, 'currency' => 'USD'])
      * @return array|null
-     * @throws Exception
      */
     public function sendEvent(
         string $eventName,
@@ -113,7 +142,7 @@ class FacebookCapiService
         ?array $customData = null
     ): ?array {
         if (!$this->apiInitialized) {
-            error_log("CAPI Error: sendEvent called but API not initialized.");
+            $this->logger->error("CAPI Error: sendEvent called but API not initialized.");
             return null;
         }
 
@@ -151,17 +180,21 @@ class FacebookCapiService
             $decoded = json_decode($response, true);
             
             // Log CAPI response
-            file_put_contents($this->logPath, 
-                date('c') . " event_id:$eventId" . 
-                " userdata:" . json_encode($userData->normalize()) .
-                " response:" . $response . 
-                " url: $eventSourceUrl" . PHP_EOL, 
-                FILE_APPEND
-            );
+            $this->logger->info("CAPI Event Sent", [
+                'event_name' => $eventName,
+                'event_id' => $eventId,
+                'url' => $eventSourceUrl,
+                'user_data' => json_encode($userData->normalize()),
+                'response' => $decoded
+            ]);
             return $decoded;
 
         } catch (Exception $e) {
-            error_log("CAPI SendEvent Error: " . $e->getMessage());
+            $this->logger->error("CAPI SendEvent Error", [
+                'event_name' => $eventName,
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
             return null;
         }
     }

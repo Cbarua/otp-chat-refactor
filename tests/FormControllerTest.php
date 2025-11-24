@@ -1,7 +1,18 @@
 <?php
-// tests/FormControllerTest.php
 
 declare(strict_types=1);
+
+namespace App\Controller;
+
+if (!function_exists('App\Controller\random_bytes')) {
+    function random_bytes(int $length): string
+    {
+        if (isset($GLOBALS['mock_random_bytes_fail']) && $GLOBALS['mock_random_bytes_fail']) {
+            throw new \Exception("Random bytes failed");
+        }
+        return \random_bytes($length);
+    }
+}
 
 namespace App\Tests\Controller;
 
@@ -11,12 +22,18 @@ use App\Controller\FormController;
 use App\Service\FacebookCapiService;
 use App\Service\OtpApiInterface;
 use App\Service\UserLoggerInterface;
+use App\Service\UserInfoService;
+use App\Service\SessionService;
+use App\Service\CsrfService;
+use App\Service\RateLimiterService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * A test-specific version of FormController that overrides problematic methods.
- * This class is defined here for convenience, but could be in its own file.
  */
 class TestableFormController extends FormController
 {
@@ -24,28 +41,19 @@ class TestableFormController extends FormController
     public ?string $renderedView = null;
     public array $renderData = [];
 
-    /**
-     * Overrides the redirect method to prevent header() and exit() calls.
-     * We just capture the URL it tried to redirect to.
-     */
-    protected function redirect(string $url): void
+    protected function redirect(string $url): RedirectResponse
     {
         $this->redirectUrl = $url;
-        // Do not call parent or exit()
+        return new RedirectResponse($url);
     }
 
-    /**
-     * Overrides the render method to prevent require_once errors.
-     * We just capture the view name and data.
-     */
-    protected function render(string $viewName, array $data = []): void
+    protected function render(string $viewName, array $data = []): Response
     {
         $this->renderedView = $viewName;
         $this->renderData = $data;
-        // Do not call parent or require_once()
+        return new Response();
     }
 }
-
 
 /**
  * Unit tests for FormController.
@@ -60,222 +68,293 @@ class FormControllerTest extends TestCase
     private MockObject|UserLoggerInterface $userLoggerMock;
     private MockObject|FacebookCapiService $capiServiceMock;
     private MockObject|LoggerInterface $loggerMock;
+    private MockObject|UserInfoService $userInfoServiceMock;
+    private MockObject|SessionService $sessionServiceMock;
+    private MockObject|CsrfService $csrfServiceMock;
+    private MockObject|RateLimiterService $rateLimiterMock;
+    private array $sessionData;
 
     protected function setUp(): void
     {
-        // 1. Reset global state before each test
-        $_SESSION = [];
-        $_POST = [];
-        $_SERVER = [];
+        $this->sessionData = [];
 
-        // 2. Set up mock server variables needed by Helpers.php
         $_SERVER['HTTP_USER_AGENT'] = 'TestAgent';
         $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
         $_SERVER['HTTP_HOST'] = 'localhost';
         $_SERVER['REQUEST_URI'] = '/';
-        $_SERVER['HTTPS'] = 'on'; // For Helpers::getCurrentUrl
+        $_SERVER['HTTPS'] = 'on';
 
-        // 3. Set up a visitor ID in the session
-        $_SESSION['visitor_id'] = 'v_test123';
-
-        // 4. Define mock configurations
         $this->config = [
             'facebook' => [
                 'test_event_code' => 'TEST123',
                 'pixel_id' => 'fb-pixel-123',
             ],
-            // ... other config keys as needed
+            'api' => [
+                'ideamart' => ['https://ideamart.api/first', 'https://ideamart.api/second'],
+                'mspace' => ['https://mspace.api/first']
+            ]
         ];
-        
-        // This config is required for Validator::normalizePhone to work
+
         $this->carrierConfig = require __DIR__ . '/../config/carriers.php';
 
-        // 5. Create mocks for all injected dependencies
         $this->otpServiceMock = $this->createMock(OtpApiInterface::class);
         $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
         $this->capiServiceMock = $this->createMock(FacebookCapiService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
+        $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
+        $this->sessionServiceMock = $this->createMock(SessionService::class);
+        $this->csrfServiceMock = $this->createMock(CsrfService::class);
+        $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
 
-        // 6. Instantiate our TestableFormController
+        $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
+
+        $this->sessionServiceMock->method('get')->willReturnCallback(function (string $key, $default = null) {
+            return $this->sessionData[$key] ?? $default;
+        });
+        $this->sessionServiceMock->method('set')->willReturnCallback(function (string $key, $value): void {
+            $this->sessionData[$key] = $value;
+        });
+        $this->sessionServiceMock->method('has')->willReturnCallback(function (string $key): bool {
+            return isset($this->sessionData[$key]);
+        });
+        $this->sessionServiceMock->method('unset')->willReturnCallback(function (string $key): void {
+            unset($this->sessionData[$key]);
+        });
+
+        $this->sessionData[FormController::SESSION_VISITOR_ID] = 'v_test123';
+
         $this->controller = new TestableFormController(
             $this->config,
             $this->carrierConfig,
             $this->otpServiceMock,
             $this->userLoggerMock,
             $this->capiServiceMock,
-            $this->loggerMock
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
         );
     }
 
-    // --- Tests for showPhoneForm() ---
+    protected function tearDown(): void
+    {
+        $_SERVER = [];
+        unset($GLOBALS['mock_random_bytes_fail']);
+    }
 
     public function testShowPhoneFormNewVisit(): void
     {
-        // Expect CAPI PageView event
-        $this->capiServiceMock->expects($this->once())
-            ->method('sendEvent')
-            ->with(
-                'PageView',
-                $this->stringContains('pgview-'),
-                'https://localhost/',
-                '127.0.0.1',
-                'TestAgent'
-            );
+        $request = Request::createFromGlobals();
 
-        // Expect UserLogger visit (without phone)
-        $this->userLoggerMock->expects($this->once())
-            ->method('logVisit')
-            ->with('v_test123', '127.0.0.1', 'TestAgent', null);
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->expects($this->once())->method('sendEvent');
+        $this->userLoggerMock->expects($this->once())->method('logVisit')->with('v_test123', '127.0.0.1', 'TestAgent', null);
 
-        // Run the controller method
-        $this->controller->showPhoneForm();
+        $this->controller->showPhoneForm($request);
 
-        // Check that the correct view was rendered
         $this->assertEquals('phone_form', $this->controller->renderedView);
-        
-        // Check that a page_view_id was set in the session
-        $this->assertArrayHasKey('page_view_id', $_SESSION);
-        
-        // Check that error message is null
+        $this->assertArrayHasKey(FormController::SESSION_PAGE_VIEW_ID, $this->sessionData);
         $this->assertNull($this->controller->renderData['errorMessage']);
-        $this->assertFalse($this->controller->renderData['isErrorRedirect']);
+        $this->assertNull($this->controller->renderData['alreadyRegistered']);
+        $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
     }
 
     public function testShowPhoneFormWithErrorRedirect(): void
     {
-        $_SESSION['error_message'] = 'An error occurred';
+        $request = Request::createFromGlobals();
+        $this->sessionData[FormController::SESSION_ERROR] = 'Invalid phone number. Example: 0771234567';
 
-        // CAPI and UserLogger should NOT be called on an error redirect
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
         $this->userLoggerMock->expects($this->never())->method('logVisit');
 
-        // Run the controller method
-        $this->controller->showPhoneForm();
+        $this->controller->showPhoneForm($request);
 
-        // Check that the correct view was rendered
         $this->assertEquals('phone_form', $this->controller->renderedView);
-
-        // Check that the error message was passed to the view
-        $this->assertEquals('An error occurred', $this->controller->renderData['errorMessage']);
-        $this->assertTrue($this->controller->renderData['isErrorRedirect']);
-
-        // Check that the error message was cleared from the session
-        $this->assertArrayNotHasKey('error_message', $_SESSION);
-        
-        // Check that no PageView ID was set
-        $this->assertArrayNotHasKey('page_view_id', $_SESSION);
+        $this->assertEquals('Invalid phone number. Example: 0771234567', $this->controller->renderData['errorMessage']);
+        $this->assertNull($this->controller->renderData['alreadyRegistered']);
+        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
     }
 
-    // --- Tests for handlePhoneForm() ---
+    public function testShowPhoneFormWithAlreadyRegisteredRedirect(): void
+    {
+        $request = Request::createFromGlobals();
+        $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'You are registered';
+
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->expects($this->once())->method('sendEvent');
+        $this->userLoggerMock->expects($this->never())->method('logVisit');
+
+        $this->controller->showPhoneForm($request);
+
+        $this->assertEquals('phone_form', $this->controller->renderedView);
+        $this->assertNull($this->controller->renderData['errorMessage']);
+        $this->assertEquals('You are registered', $this->controller->renderData['alreadyRegistered']);
+        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+    }
 
     public function testHandlePhoneFormInvalidNumber(): void
     {
-        $_POST['mobile'] = '12345'; // Invalid number
+        $request = new Request([], ['mobile' => '12345', 'csrf_token' => 'valid-token']);
 
-        // UserLogger should not be called for an invalid number
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
         $this->userLoggerMock->expects($this->never())->method('logVisit');
 
-        // Run the controller method
-        $this->controller->handlePhoneForm();
+        $this->controller->handlePhoneForm($request);
 
-        // Check that it redirects back to the home page
         $this->assertEquals('/', $this->controller->redirectUrl);
-
-        // Check that the correct error message was set in the session
-        $this->assertEquals(
-            'Invalid phone number. Example: 0771234567',
-            $_SESSION['error_message']
-        );
+        $this->assertEquals('Invalid phone number. Example: 0771234567', $this->sessionData[FormController::SESSION_ERROR]);
     }
 
     public function testHandlePhoneFormValidNumberOtpSuccess(): void
     {
-        $_POST['mobile'] = '0771234567'; // Valid LK Dialog number
-        $_POST['fbp'] = 'fb.1.test_fbp';
-        $_POST['fbc'] = 'fb.1.test_fbc';
+        $request = new Request([], [
+            'mobile' => '0771234567',
+            'fbp' => 'fb.1.test_fbp',
+            'fbc' => 'fb.1.test_fbc',
+            'csrf_token' => 'valid-token'
+        ]);
 
-        // Expect UserLogger to be called with the normalized phone
-        $this->userLoggerMock->expects($this->once())
-            ->method('logVisit')
-            ->with('v_test123', '127.0.0.1', 'TestAgent', '94771234567');
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
 
-        // Expect OTP service to be called and return a success response
+        $this->userLoggerMock->expects($this->once())->method('logVisit')->with('v_test123', '127.0.0.1', 'TestAgent', '94771234567');
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
-            ->with(
-                'ideamart', // Platform from Validator
-                'tel:94771234567', // Telco format from Validator
-                $this->anything() // We don't need to strictly test metaData here
-            )
-            ->willReturn(['referenceNo' => 'otp_ref_999']);
+            ->with('ideamart', 'tel:94771234567', $this->arrayHasKey('ip'))
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'otp_ref_999', 'usedApiUrl' => 'https://ideamart.api/first']]);
 
-        // Run the controller method
-        $this->controller->handlePhoneForm();
+        $this->controller->handlePhoneForm($request);
 
-        // Check that it redirects to the OTP page
         $this->assertEquals('/otp', $this->controller->redirectUrl);
-
-        // Check that all required data was stored in the session
-        $this->assertArrayHasKey('lead_id', $_SESSION);
-        $this->assertEquals('otp_ref_999', $_SESSION['otp_ref_no']);
-        $this->assertEquals('fb.1.test_fbp', $_SESSION['fbp']);
-        $this->assertEquals('fb.1.test_fbc', $_SESSION['fbc']);
-        $this->assertEquals('94771234567', $_SESSION['phone_data']['capi_format']);
+        $this->assertArrayHasKey(FormController::SESSION_LEAD_ID, $this->sessionData);
+        $this->assertEquals('otp_ref_999', $this->sessionData[FormController::SESSION_OTP_TOKEN]['referenceNo']);
+        $this->assertEquals('fb.1.test_fbp', $this->sessionData[FormController::SESSION_FBP]);
+        $this->assertEquals('fb.1.test_fbc', $this->sessionData[FormController::SESSION_FBC]);
+        $this->assertEquals('94771234567', $this->sessionData[FormController::SESSION_PHONE_DATA]['capi_format']);
     }
 
     public function testHandlePhoneFormOtpFailureUserRegistered(): void
     {
-        $_POST['mobile'] = '0711234567'; // Valid LK Mobitel number
+        $request = new Request([], ['mobile' => '0711234567', 'csrf_token' => 'valid-token']);
 
-        // UserLogger should still be called
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
         $this->userLoggerMock->expects($this->once())->method('logVisit');
-
-        // Expect OTP service to return a "user already registered" error
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
-            ->willReturn([
-                'status' => 'FAIL',
-                'statusDetail' => 'user already registered'
-            ]);
+            ->with('mspace', 'tel:94711234567', $this->arrayHasKey('ip'))
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'user already registered']);
 
-        // Run the controller method
-        $this->controller->handlePhoneForm();
+        $this->controller->handlePhoneForm($request);
 
-        // Check that it redirects back to the home page
         $this->assertEquals('/', $this->controller->redirectUrl);
-
-        // Check that the specific error message was set
-        $this->assertEquals('You are already registered!', $_SESSION['error_message']);
+        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+        $this->assertEquals('You are already registered!', $this->sessionData[FormController::SESSION_ALREADY_REGISTERED]);
     }
 
     public function testHandlePhoneFormOtpFailureGenericError(): void
     {
-        $_POST['mobile'] = '0711234567';
+        $request = new Request([], ['mobile' => '0711234567', 'csrf_token' => 'valid-token']);
 
-        // UserLogger should still be called
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
         $this->userLoggerMock->expects($this->once())->method('logVisit');
-
-        // Expect OTP service to return a generic error
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
-            ->willReturn([
-                'status' => 'FAIL',
-                'statusDetail' => 'some other api error'
-            ]);
+            ->with('mspace', 'tel:94711234567', $this->arrayHasKey('ip'))
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'some other api error']);
 
-        // Run the controller method
-        $this->controller->handlePhoneForm();
+        $this->controller->handlePhoneForm($request);
 
-        // Check that it redirects back to the home page
-        $this->assertEquals(
-            '/',
-            $this->controller->redirectUrl
+        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+        $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
+    }
+
+    public function testTrackVisitRandomBytesFailure(): void
+    {
+        $GLOBALS['mock_random_bytes_fail'] = true;
+        $request = Request::createFromGlobals();
+
+        // We expect it to fall back to uniqid(), so it should still succeed
+        $this->controller->showPhoneForm($request);
+
+        $this->assertStringStartsWith('pgview-', $this->sessionData[FormController::SESSION_PAGE_VIEW_ID]);
+    }
+
+    public function testHandleOtpApiResponseRandomBytesFailure(): void
+    {
+        $GLOBALS['mock_random_bytes_fail'] = true;
+        $request = new Request([], [
+            'mobile' => '0771234567',
+            'csrf_token' => 'valid-token'
+        ]);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'ref']]);
+        $this->userLoggerMock->method('logVisit');
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertStringStartsWith('lead-', $this->sessionData[FormController::SESSION_LEAD_ID]);
+    }
+
+    public function testShowPhoneFormCapiServiceNull(): void
+    {
+        $controller = new TestableFormController(
+            $this->config,
+            $this->carrierConfig,
+            $this->otpServiceMock,
+            $this->userLoggerMock,
+            null, // capiService is null
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
         );
 
-        // Check that the generic error message was set
-        $this->assertEquals(
-            'An error occurred. Please try again later.',
-            $_SESSION['error_message']
-        );
+        $request = Request::createFromGlobals();
+        $this->userLoggerMock->expects($this->once())->method('logVisit');
+
+        $controller->showPhoneForm($request);
+
+        $this->assertEquals('phone_form', $controller->renderedView);
+    }
+
+    public function testHandlePhoneFormCsrfValidationFailure(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'invalid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('invalid-token')->willReturn(false);
+        $this->rateLimiterMock->expects($this->never())->method('check');
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('Security check failed. Please try again.', $this->sessionData[FormController::SESSION_ERROR]);
+    }
+
+    public function testHandlePhoneFormRateLimitExceeded(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(false);
+        $this->rateLimiterMock->expects($this->never())->method('increment');
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
     }
 }

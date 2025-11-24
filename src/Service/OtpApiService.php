@@ -3,84 +3,170 @@
 
 namespace App\Service;
 
-use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\RequestException;
+use Psr\Log\LoggerInterface;
 
 /**
  * Manages all communication with the third-party OTP provider.
  */
 class OtpApiService implements OtpApiInterface
 {
-    private Client $client;
-    private array $apiUrls;
+    private array $apiConfig;
+    private ClientInterface $client;
+    private LoggerInterface $logger;
 
-    public function __construct(array $config)
+    public function __construct(array $apiConfig, LoggerInterface $logger, ClientInterface $httpClient)
     {
-        $this->apiUrls = $config['api'];
-        $this->client = new Client([
-            'timeout' => 5.0, // Set a reasonable timeout
-            'headers' => ['Content-Type' => 'application/json']
-        ]);
+        $this->apiConfig = $apiConfig;
+        $this->logger = $logger;
+        $this->client = $httpClient;
     }
 
     /**
-     * Requests an OTP from the provider.
+     * Requests an OTP from the provider for a specific platform.
+     * It tries multiple URLs if necessary.
      *
-     * @param string $platform 'ideamart' or 'mspace'
-     * @param string $subscriberId The 'tel:...' formatted number
-     * @param array $metaData Additional data for the API call
-     * @return array The JSON response as an array
+     * @param string $platform The platform identifier (e.g., 'ideamart', 'mspace').
+     * @param string $subscriberId The 'tel:...' formatted number.
+     * @param array $metaData Additional data for the API call.
+     * @return array The response. On success, includes 'referenceNo' and 'verificationToken'.
      */
-    public function getOtp(string $platform, string $subscriberId, array $metaData): array
+    public function getOtp(string $platform, string $subscriberId, array $metaData, array $excludeUrls = []): array
     {
-        $url = ($this->apiUrls[$platform] ?? $this->apiUrls['ideamart']) . 'getOtp.php';
-        
-        $payload = [
-            'subscriberId' => $subscriberId,
-            'applicationMetaData' => $metaData
-        ];
+        $allBaseUrls = $this->apiConfig[$platform] ?? [];
+        if (empty($allBaseUrls)) {
+            $this->logger->error('No API URLs configured for platform.', ['platform' => $platform]);
+            return ['status' => 'error', 'message' => 'Configuration error for platform.'];
+        }
 
-        return $this->sendRequest($url, $payload);
+        // Filter out any URLs that should be excluded for this attempt
+        $baseUrls = array_diff($allBaseUrls, $excludeUrls);
+        if (empty($baseUrls)) {
+            $this->logger->warning('All available API URLs for the platform were excluded.', [
+                'platform' => $platform,
+                'excluded_urls' => $excludeUrls
+            ]);
+            return ['status' => 'error', 'message' => 'No available API endpoints to try.'];
+        }
+
+        $lastResponse = [];
+        foreach ($baseUrls as $baseUrl) {
+            $url = rtrim($baseUrl, '/') . '/getOtp.php';
+
+            $payload = [
+                'subscriberId' => $subscriberId,
+                'applicationMetaData' => $metaData
+            ];
+
+            $response = $this->sendRequest($url, $payload);
+            $lastResponse = $response; // Always store the last response
+
+            if (($response['statusCode'] ?? null) === 'S1000') {
+                $this->logger->info('OTP request successful.', ['base_url' => $baseUrl]);
+
+                // Return a structured success response with the token
+                return [
+                    'status' => 'success',
+                    'referenceNo' => $response['referenceNo'],
+                    'verificationToken' => [
+                        'referenceNo' => $response['referenceNo'],
+                        'usedApiUrl' => $baseUrl,
+                        'platform' => $platform // Include platform for fallback logic
+                    ],
+                    'originalResponse' => $response
+                ];
+            }
+
+            $this->logger->warning('OTP request to URL failed, trying next if available.', [
+                'base_url' => $baseUrl,
+                'response' => $response
+            ]);
+        }
+
+        // If the loop completes, all URLs have failed.
+        $this->logger->error('All OTP request URLs failed for subscriber.', [
+            'subscriberId' => $subscriberId,
+            'last_response' => $lastResponse
+        ]);
+
+        // Return the last failure with details
+        return [
+            'status' => 'error',
+            'statusCode' => $lastResponse['statusCode'] ?? null,
+            'statusDetail' => $lastResponse['statusDetail'] ?? null,
+            'originalResponse' => $lastResponse
+        ];
     }
 
     /**
-     * Verifies an OTP with the provider.
+     * Verifies an OTP with the provider using a token from the getOtp call.
      *
-     * @param string $platform 'ideamart' or 'mspace'
-     * @param string $referenceNo The reference number from the getOtp call
+     * @param array $verificationToken The data bundle from a successful getOtp call.
      * @param string $otp The 6-digit user-provided OTP
      * @return array The JSON response as an array
      */
-    public function verifyOtp(string $platform, string $referenceNo, string $otp): array
+    public function verifyOtp(array $verificationToken, string $otp): array
     {
-        $url = ($this->apiUrls[$platform] ?? $this->apiUrls['ideamart']) . 'verifyOtp.php';
-        
+        $baseUrl = $verificationToken['usedApiUrl'] ?? null;
+        $referenceNo = $verificationToken['referenceNo'] ?? null;
+
+        if (!$baseUrl || !$referenceNo) {
+            $this->logger->error('Invalid verification token provided to verifyOtp.', ['token' => $verificationToken]);
+            return ['status' => 'error', 'message' => 'Invalid verification token.'];
+        }
+
+        $url = rtrim($baseUrl, '/') . '/verifyOtp.php';
+
         $payload = [
             'referenceNo' => $referenceNo,
             'otp' => $otp
         ];
-        
-        return $this->sendRequest($url, $payload);
+
+        $response = $this->sendRequest($url, $payload);
+
+        // That's how it is set up in the app for now
+        if (($response['status'] ?? null) === 'success') {
+            return [
+                'status' => 'success',
+                'subscriptionStatus' => $response['subscriptionStatus'] ?? null,
+                'originalResponse' => $response
+            ];
+        }
+
+        return [
+            'status' => $response['status'] ?? 'error',
+            'originalResponse' => $response
+        ];
     }
 
     /**
      * The core Guzzle request handler.
-     * This replaces the insecure cURL function.
      */
     private function sendRequest(string $url, array $payload): array
     {
         try {
-            $response = $this->client->post($url, [
+            $this->logger->info('Sending API request', ['url' => $url, 'payload' => $payload]);
+
+            $response = $this->client->request('POST', $url, [
                 'json' => $payload
             ]);
 
             $body = $response->getBody()->getContents();
-            return json_decode($body, true) ?? ['status' => 'error', 'message' => 'Invalid JSON response'];
+            $decodedBody = json_decode($body, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $this->logger->error("OTP Service Error: Invalid JSON response from API", ['body' => $body]);
+                return ['status' => 'error', 'message' => 'Invalid JSON response from API'];
+            }
+            return $decodedBody;
 
         } catch (RequestException $e) {
-            // Log the error
-            error_log("OTP API Error: " . $e->getMessage());
-            
+            $this->logger->error("OTP API RequestException", [
+                'url' => $url,
+                'error' => $e->getMessage()
+            ]);
+
             // Return a standard error format
             return [
                 'status' => 'error',
@@ -88,7 +174,10 @@ class OtpApiService implements OtpApiInterface
                 'detail' => $e->getMessage()
             ];
         } catch (\Exception $e) {
-            error_log("OTP Service Error: " . $e->getMessage());
+            $this->logger->error("OTP Service System Error", [
+                'url' => $url,
+                'error' => $e->getMessage()
+            ]);
             return [
                 'status' => 'error',
                 'message' => 'A system error occurred',

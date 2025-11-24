@@ -4,107 +4,114 @@
 namespace App\Controller;
 
 use App\Service\FacebookCapiService;
+use App\Service\SessionService;
+use App\Service\UserInfoService;
 use Psr\Log\LoggerInterface;
-use App\Utils\Helpers;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
-class ThankYouController
+class ThankYouController extends BaseController
 {
+    // Session Keys
+    public const SESSION_REG_ID = 'reg_id';
+    public const SESSION_PHONE_DATA = 'phone_data';
+    public const SESSION_OTP_TOKEN = 'otp_token';
+
     private array $config;
-    private FacebookCapiService $capiService;
+    private ?FacebookCapiService $capiService;
     private LoggerInterface $logger;
+    private UserInfoService $userInfoService;
+    private SessionService $session;
 
     public function __construct(
         array $config,
-        FacebookCapiService $capiService,
-        LoggerInterface $logger
-    )
-    {
+        ?FacebookCapiService $capiService,
+        LoggerInterface $logger,
+        UserInfoService $userInfoService,
+        SessionService $sessionService
+    ) {
         $this->config = $config;
         $this->capiService = $capiService;
         $this->logger = $logger;
+        $this->userInfoService = $userInfoService;
+        $this->session = $sessionService;
     }
 
     /**
      * Displays the "Thank You" page and fires registration events.
      */
-    public function showThankYouPage(): void
+    public function showThankYouPage(Request $request): Response
     {
         // 1. Security Check: Ensure user completed OTP
-        if (empty($_SESSION['reg_id']) || empty($_SESSION['phone_data'])) {
-            $this->redirect('/');
-            return;
+        if (!$this->session->has(self::SESSION_REG_ID) || !$this->session->has(self::SESSION_PHONE_DATA)) {
+            return $this->redirect('/');
         }
 
-        // 2. Get all data from session
-        $regId = $_SESSION['reg_id'];
-        $phoneData = $_SESSION['phone_data'];
-        $userInfo = Helpers::getUserInfo();
+        $regId = $this->session->get(self::SESSION_REG_ID);
+        $phoneData = $this->session->get(self::SESSION_PHONE_DATA);
+        $pageViewEventId = null;
+        $customData = null;
+
+        if ($this->capiService !== null) {
+            // 2. Get user info for CAPI events
+            $userInfo = $this->userInfoService->get($request);
+            
+            $pageViewEventId = "pgview-thanks-" . uniqid();
+            $this->session->set('page_view_id_thanks', $pageViewEventId);
+    
+            $this->logger->info('New PageView triggered. /thanks', [
+                'page_view_id' => $pageViewEventId
+            ]);
+    
+            // Fire the PageView CAPI event
+            $this->capiService->sendEvent(
+                'PageView',
+                $pageViewEventId,
+                $request->getUri(),
+                $userInfo['ip'],
+                $userInfo['useragent']
+            );
+    
+            // Fire "CompleteRegistration" CAPI Event
+            if (!empty($regId) && !empty($phoneData['capi_format'])) {
+
+                $customData = [
+                    'currency' => 'USD',
+                    'value' => $phoneData['value'] ?? '0.01' // FB Capi needs a value
+                ];
+
+                $this->logger->info('CompleteRegistration event flag found. Firing CAPI + Pixel.');
+                
+                $this->capiService->sendEvent(
+                    'CompleteRegistration',
+                    $regId, // This ID is shared with the Pixel
+                    $request->getUri(),
+                    $userInfo['ip'],
+                    $userInfo['useragent'],
+                    $phoneData['capi_format'],
+                    $customData
+                );
+            }
+        }
         
-        $pageViewEventId = "pgview-thanks-" . uniqid();
-        $_SESSION['page_view_id_thanks'] = $pageViewEventId;
-
-        $this->logger->info('New PageView triggered. /thanks', [
-            'page_view_id' => $pageViewEventId
-        ]);
-
-        // Fire the PageView CAPI event
-        $this->capiService->sendEvent(
-            'PageView',
-            $pageViewEventId,
-            Helpers::getCurrentUrl(),
-            $userInfo['ip'],
-            $userInfo['useragent']
-        );
-
-        // 3. Prepare Event Data
-        $customData = [
-            'currency' => 'USD',
-            'value' => $phoneData['value']
-        ];
-
-        // 4. Fire "CompleteRegistration" CAPI Event
-        $this->capiService->sendEvent(
-            'CompleteRegistration',
-            $regId, // This ID is shared with the Pixel
-            Helpers::getCurrentUrl(),
-            $userInfo['ip'],
-            $userInfo['useragent'],
-            $phoneData['capi_format'],
-            $customData
-        );
-
         // 5. Prepare data for the view
         $data = [
             'config' => $this->config,
-            'pixelId' => $this->config['facebook']['pixel_id'],
-            'testEventCode' => $this->config['facebook']['test_event_code'],
+            'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
+            'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'pageViewEventId' => $pageViewEventId,
-            'regId' => $regId, // For Pixel deduplication
-            'phoneCapi' => $phoneData['capi_format'], // For Pixel Advanced Matching
-            'eventData' => json_encode($customData) // For Pixel event
+            'regId' => $regId,
+            'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'eventData' => ($customData !== null) ? json_encode($customData) : null
         ];
 
         // 6. Clear session to prevent re-firing
-        unset($_SESSION['reg_id']);
-        unset($_SESSION['lead_id']);
-        unset($_SESSION['otp_ref_no']);
+        $this->session->unset(self::SESSION_REG_ID);
+        $this->session->unset(self::SESSION_OTP_TOKEN);
         // We keep 'phone_data' just in case, but clear sensitive IDs
 
         // 7. Render the view
-        $this->render('thanks', $data);
-    }
-
-    private function render(string $viewName, array $data = []): void
-    {
-        extract($data);
-        require_once __DIR__ . "/../../templates/_layout_header.php";
-        require_once __DIR__ . "/../../templates/{$viewName}.php";
-        require_once __DIR__ . "/../../templates/_layout_footer.php";
-    }
-
-    private function redirect(string $url): void
-    {
-        header("Location: {$url}");
-        exit;
+        $this->logger->info('Thank You page reached. Conversion successful.');
+        return $this->render('thanks', $data);
     }
 }

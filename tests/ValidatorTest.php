@@ -3,46 +3,103 @@
 
 use PHPUnit\Framework\TestCase;
 use App\Utils\Validator;
+use Psr\Log\LoggerInterface;
 
 class ValidatorTest extends TestCase
 {
     private $carrierConfig;
+    private $loggerMock;
 
     protected function setUp(): void
     {
         // Load the real carrier config for testing
         $this->carrierConfig = require __DIR__ . '/../config/carriers.php';
+        $this->loggerMock = $this->createMock(LoggerInterface::class);
     }
 
-    public function testValidSriLankanNumbers()
+    public function testValidSriLankanNumbers(): void
     {
-        // Test a 'default' (Dialog/Airtel) number
-        $phoneData = Validator::normalizePhone('0771234567', $this->carrierConfig, 'LK');
+        $this->loggerMock->expects($this->never())->method('warning');
+
+        // Test a 'Dialog' number
+        $phoneData = Validator::normalizePhone('0771234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertIsArray($phoneData);
         $this->assertEquals('tel:94771234567', $phoneData['telco_format']);
         $this->assertEquals('94771234567', $phoneData['capi_format']);
         $this->assertEquals('ideamart', $phoneData['platform']);
         $this->assertEquals(0.02, $phoneData['value']);
 
+        // Test a 'Airtel' number
+        $phoneData = Validator::normalizePhone('0751234567', $this->carrierConfig, 'LK', $this->loggerMock);
+        $this->assertIsArray($phoneData);
+        $this->assertEquals('tel:94751234567', $phoneData['telco_format']);
+        $this->assertEquals('94751234567', $phoneData['capi_format']);
+        $this->assertEquals('ideamart', $phoneData['platform']);
+        $this->assertEquals(0.02, $phoneData['value']);
+
         // Test a 'Mobitel' number
-        $phoneData = Validator::normalizePhone('0711234567', $this->carrierConfig, 'LK');
+        $phoneData = Validator::normalizePhone('0711234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertEquals('mspace', $phoneData['platform']);
         $this->assertEquals(0.01, $phoneData['value']);
 
         // Test a 'Hutch' number
-        $phoneData = Validator::normalizePhone('0781234567', $this->carrierConfig, 'LK');
+        $phoneData = Validator::normalizePhone('0781234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertEquals('ideamart', $phoneData['platform']);
         $this->assertEquals(0.015, $phoneData['value']);
     }
 
-    public function testInvalidSriLankanNumbers()
+    public function testInvalidSriLankanNumbers(): void
     {
-        $this->assertNull(Validator::normalizePhone('12345', $this->carrierConfig, 'LK'));
-        $this->assertNull(Validator::normalizePhone('077123456', $this->carrierConfig, 'LK')); // Too short
-        $this->assertNull(Validator::normalizePhone('0881234567', $this->carrierConfig, 'LK')); // Invalid prefix
+        $this->loggerMock->expects($this->exactly(4))
+            ->method('warning')
+            ->with($this->stringContains('Validation failed'));
+
+        $this->assertNull(Validator::normalizePhone('12345', $this->carrierConfig, 'LK', $this->loggerMock));
+        $this->assertNull(Validator::normalizePhone('077123456', $this->carrierConfig, 'LK', $this->loggerMock)); // Too short
+        $this->assertNull(Validator::normalizePhone('07712345678', $this->carrierConfig, 'LK', $this->loggerMock)); // Too long
+        $this->assertNull(Validator::normalizePhone('0881234567', $this->carrierConfig, 'LK', $this->loggerMock)); // Invalid prefix
     }
 
-    public function testOtpValidation()
+    public function testValidBangladeshNumbers(): void
+    {
+        $this->loggerMock->expects($this->never())->method('warning');
+
+        // Test a 'Airtel' number
+        $phoneData = Validator::normalizePhone('01612345678', $this->carrierConfig, 'BD', $this->loggerMock);
+        $this->assertIsArray($phoneData);
+        $this->assertEquals('tel:8801612345678', $phoneData['telco_format']);
+        $this->assertEquals('8801612345678', $phoneData['capi_format']);
+        $this->assertEquals('bdapps', $phoneData['platform']);
+        $this->assertEquals(0.01, $phoneData['value']);
+
+        // Test a 'Robi' number
+        $phoneData = Validator::normalizePhone('01812345678', $this->carrierConfig, 'BD', $this->loggerMock);
+        $this->assertEquals('bdapps', $phoneData['platform']);
+        $this->assertEquals(0.01, $phoneData['value']);
+    }
+
+    public function testInvalidBangladeshNumbers(): void
+    {
+        $this->loggerMock->expects($this->exactly(4))
+            ->method('warning')
+            ->with($this->stringContains('Validation failed'));
+
+        $this->assertNull(Validator::normalizePhone('12345', $this->carrierConfig, 'BD', $this->loggerMock));
+        $this->assertNull(Validator::normalizePhone('0171234567', $this->carrierConfig, 'BD', $this->loggerMock)); // Too short
+        $this->assertNull(Validator::normalizePhone('017123456789', $this->carrierConfig, 'BD', $this->loggerMock)); // Too long
+        $this->assertNull(Validator::normalizePhone('02812345678', $this->carrierConfig, 'BD', $this->loggerMock)); // Invalid prefix
+    }
+
+    public function testUnconfiguredCountry(): void
+    {
+        $this->loggerMock->expects($this->once())
+            ->method('warning')
+            ->with($this->stringContains('Country code not configured'));
+
+        $this->assertNull(Validator::normalizePhone('1234567890', $this->carrierConfig, 'XX', $this->loggerMock));
+    }
+
+    public function testOtpValidation(): void
     {
         $this->assertTrue(Validator::validateOtp('123456'));
         $this->assertTrue(Validator::validateOtp('999999'));

@@ -6,6 +6,7 @@ namespace App\Service;
 
 use SQLite3;
 use Exception;
+use Psr\Log\LoggerInterface;
 
 /**
  * Manages logging user visits with "enrichment" logic.
@@ -22,13 +23,15 @@ class EnrichingUserLoggerService implements UserLoggerInterface
 {
     private ?SQLite3 $db = null;
     private string $dbPath;
+    private LoggerInterface $logger;
 
     /**
      * @param string $dbPath The direct file path to the SQLite database.
      */
-    public function __construct(string $dbPath)
+    public function __construct(string $dbPath, LoggerInterface $logger)
     {
         $this->dbPath = $dbPath;
+        $this->logger = $logger;
         $this->initializeDatabase();
     }
 
@@ -60,7 +63,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
                 throw new Exception("Failed to create logs table: " . $this->db->lastErrorMsg());
             }
         } catch (Exception $e) {
-            error_log("EnrichingUserLoggerService DB Error: " . $e->getMessage());
+            $this->logger->error("EnrichingUserLoggerService DB Error", ['error' => $e->getMessage()]);
             $this->db = null;
         }
     }
@@ -77,7 +80,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
     public function logVisit(string $visitorId, string $ip, string $userAgent, ?string $phoneNumber = null): void
     {
         if (!$this->db) {
-            error_log("EnrichingUserLoggerService: No database connection.");
+            $this->logger->error("EnrichingUserLoggerService: No database connection.");
             return;
         }
 
@@ -146,7 +149,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
         } catch (Exception $e) {
             // Something went wrong, roll back
             $this->db?->exec('ROLLBACK');
-            error_log("EnrichingUserLoggerService logVisit Error: " . $e->getMessage());
+            $this->logger->error("EnrichingUserLoggerService logVisit Error", ['error' => $e->getMessage()]);
         }
     }
     

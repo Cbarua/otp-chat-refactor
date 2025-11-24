@@ -6,6 +6,7 @@ namespace App\Service;
 
 use SQLite3;
 use Exception;
+use Psr\Log\LoggerInterface;
 
 /**
  * Manages logging user visits with the fast "UPSERT" method.
@@ -26,13 +27,15 @@ class SimpleUserLoggerService implements UserLoggerInterface
 {
     private ?SQLite3 $db = null;
     private string $dbPath;
+    private LoggerInterface $logger;
 
     /**
      * @param string $dbPath The direct file path to the SQLite database.
      */
-    public function __construct(string $dbPath)
+    public function __construct(string $dbPath, LoggerInterface $logger)
     {
         $this->dbPath = $dbPath;
+        $this->logger = $logger;
         $this->initializeDatabase();
     }
 
@@ -76,7 +79,7 @@ class SimpleUserLoggerService implements UserLoggerInterface
             // -------------------------------------------------
 
         } catch (Exception $e) {
-            error_log("SimpleUserLoggerService DB Error: " . $e->getMessage());
+            $this->logger->error("SimpleUserLoggerService DB Error", ['error' => $e->getMessage()]);
             $this->db = null;
         }
     }
@@ -87,7 +90,7 @@ class SimpleUserLoggerService implements UserLoggerInterface
     public function logVisit(string $visitorId, string $ip, string $userAgent, ?string $phoneNumber = null): void
     {
         if (!$this->db) {
-            error_log("SimpleUserLoggerService: No database connection.");
+            $this->logger->error("SimpleUserLoggerService: No database connection.");
             return;
         }
 
@@ -113,7 +116,7 @@ class SimpleUserLoggerService implements UserLoggerInterface
             $stmt->execute();
 
         } catch (Exception $e) {
-            error_log("SimpleUserLoggerService logVisit Error: " . $e->getMessage());
+            $this->logger->error("SimpleUserLoggerService logVisit Error", ['error' => $e->getMessage()]);
         }
     }
     
