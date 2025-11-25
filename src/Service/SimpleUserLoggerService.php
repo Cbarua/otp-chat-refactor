@@ -49,9 +49,15 @@ class SimpleUserLoggerService implements UserLoggerInterface
             if (!is_dir($dir)) {
                 mkdir($dir, 0775, true);
             }
-            
+
             $this->db = new SQLite3($this->dbPath);
-            
+
+            // Mitigate "database is locked" errors:
+            // 1. Wait up to 5000ms (5s) when the DB is busy
+            $this->db->busyTimeout(5000);
+            // 2. Enable Write-Ahead Logging (WAL) for better concurrency
+            $this->db->exec('PRAGMA journal_mode = WAL;');
+
             // Create the table (this is the same as your original)
             $createTableSQL = "CREATE TABLE IF NOT EXISTS logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +67,7 @@ class SimpleUserLoggerService implements UserLoggerInterface
                 phonenumber TEXT,
                 useragent TEXT
             )";
-            
+
             if (!$this->db->exec($createTableSQL)) {
                 throw new Exception("Failed to create logs table: " . $this->db->lastErrorMsg());
             }
@@ -72,7 +78,7 @@ class SimpleUserLoggerService implements UserLoggerInterface
             // This will safely run on an existing DB, *if* it doesn't have duplicates.
             $createIndexSQL = "CREATE UNIQUE INDEX IF NOT EXISTS idx_log_unique_visit
                                ON logs (visitor_id, ipaddress, useragent, COALESCE(phonenumber, ''))";
-            
+
             if (!$this->db->exec($createIndexSQL)) {
                 throw new Exception("Failed to create unique index: " . $this->db->lastErrorMsg());
             }
@@ -106,20 +112,20 @@ class SimpleUserLoggerService implements UserLoggerInterface
                 ON CONFLICT(visitor_id, ipaddress, useragent, COALESCE(phonenumber, ''))
                 DO UPDATE SET lastaccesstime = :ts
             ");
-            
+
             $stmt->bindValue(':vid', $visitorId, SQLITE3_TEXT);
             $stmt->bindValue(':ts', $timestamp, SQLITE3_TEXT);
             $stmt->bindValue(':ip', $ip, SQLITE3_TEXT);
             $stmt->bindValue(':phone', $phoneNumber, SQLITE3_TEXT);
             $stmt->bindValue(':ua', $userAgent, SQLITE3_TEXT);
-            
+
             $stmt->execute();
 
         } catch (Exception $e) {
             $this->logger->error("SimpleUserLoggerService logVisit Error", ['error' => $e->getMessage()]);
         }
     }
-    
+
     public function __destruct()
     {
         $this->db?->close();

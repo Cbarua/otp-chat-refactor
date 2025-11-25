@@ -101,4 +101,23 @@ class SimpleUserLoggerServiceTest extends TestCase
         @unlink($dbPath);
         $this->assertFalse(file_exists($dbPath));
     }
+
+    public function testConcurrencyConfiguration(): void
+    {
+        $service = new SimpleUserLoggerService($this->dbPath, $this->loggerMock);
+
+        // Access private property $db using Reflection
+        $reflection = new \ReflectionClass($service);
+        $property = $reflection->getProperty('db');
+        $property->setAccessible(true);
+        $db = $property->getValue($service);
+
+        // 1. Verify WAL Mode
+        $journalMode = $db->querySingle("PRAGMA journal_mode");
+        $this->assertEquals('wal', strtolower($journalMode), "Journal mode should be WAL");
+
+        // 2. Verify Busy Timeout
+        $busyTimeout = $db->querySingle("PRAGMA busy_timeout");
+        $this->assertEquals(5000, $busyTimeout, "Busy timeout should be 5000ms");
+    }
 }

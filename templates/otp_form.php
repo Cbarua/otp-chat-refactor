@@ -4,6 +4,7 @@
 // This template has access to $config, $leadEventId, $phoneCapi, $errorMessage, etc.
 ?>
 
+<?php if ($pixelId): ?>
 <script>
     <?php if (!empty($phoneCapi)): ?>
         // Re-init pixel with phone hash for Advanced Matching
@@ -29,6 +30,7 @@
         );
     <?php endif; ?>
 </script>
+<?php endif; ?>
 
 
 <section class="img-section">

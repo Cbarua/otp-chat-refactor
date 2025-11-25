@@ -17,6 +17,13 @@ final class RegistrationFlowCest
     private const MAGIC_OTP = '999999';
 
     private static bool $logsCleared = false;
+    private array $config;
+
+    public function __construct()
+    {
+        // Load config to check for pixel ID
+        $this->config = require __DIR__ . '/../../config/app.php';
+    }
 
     public function _before(AcceptanceTester $I): void
     {
@@ -232,11 +239,18 @@ final class RegistrationFlowCest
         $I->amOnPage('/');
 
         // 1. Check that the pixel is initialized
-        $I->seeInSource('fbq(\'init\', \'YOUR_PIXEL_ID\')');
+        $pixelId = $this->config['facebook']['pixel_id'] ?? null;
 
-        // 2. Check that the PageView event is rendered with its unique ID
-        $I->seeInSource('fbq(\'track\', \'PageView\'');
-        $I->seeInSource('eventID: \'pgview-'); //
+        if (empty($pixelId)) {
+            $I->dontSeeInSource("fbq('init'");
+            $I->dontSeeInSource("fbq('track', 'PageView'");
+        } else {
+            $I->seeInSource("fbq('init', '$pixelId')");
+
+            // 2. Check that the PageView event is rendered with its unique ID
+            $I->seeInSource("fbq('track', 'PageView'");
+            $I->seeInSource("eventID: 'pgview-");
+        }
     }
 
     public function testPixelsOnOtpForm(AcceptanceTester $I)
@@ -252,13 +266,20 @@ final class RegistrationFlowCest
         $I->wait(3);
         $I->seeInCurrentUrl('/otp');
 
-        // 2. Check that the PageView event for this page is rendered
-        $I->seeInSource('fbq(\'track\', \'PageView\'');
-        $I->seeInSource('eventID: \'pgview-otp-'); //
+        $pixelId = $this->config['facebook']['pixel_id'] ?? null;
 
-        // 3. Check that the Lead event is rendered
-        $I->seeInSource('fbq(\'track\', \'Lead\'');
-        $I->seeInSource('eventID: \'lead-');
+        if (empty($pixelId)) {
+            $I->dontSeeInSource("fbq('track', 'PageView'");
+            $I->dontSeeInSource("fbq('track', 'Lead'");
+        } else {
+            // 2. Check that the PageView event for this page is rendered
+            $I->seeInSource("fbq('track', 'PageView'");
+            $I->seeInSource("eventID: 'pgview-otp-");
+
+            // 3. Check that the Lead event is rendered
+            $I->seeInSource("fbq('track', 'Lead'");
+            $I->seeInSource("eventID: 'lead-");
+        }
     }
 
     public function testPixelsOnThanksPage(AcceptanceTester $I)
@@ -269,7 +290,7 @@ final class RegistrationFlowCest
         $I->amOnPage('/');
         $I->fillField('mobile', self::MAGIC_PHONE);
         $I->click('Register');
-        
+
         // Wait for the redirection to happen (API call takes time)
         $I->wait(3);
         $I->seeInCurrentUrl('/otp');
@@ -280,13 +301,20 @@ final class RegistrationFlowCest
         $I->wait(3);
         $I->seeInCurrentUrl('/thanks');
 
-        // 2. Check that the CompleteRegistration event is rendered
-        $I->seeInSource('fbq(\'track\', \'CompleteRegistration\'');
-        $I->seeInSource('eventID: \'reg-'); //
+        $pixelId = $this->config['facebook']['pixel_id'] ?? null;
 
-        // 3. Check that a PageView event is fired
-        $I->seeInSource('fbq(\'track\', \'PageView\'');
-        $I->seeInSource('eventID: \'pgview-thanks-'); //
+        if (empty($pixelId)) {
+            $I->dontSeeInSource("fbq('track', 'CompleteRegistration'");
+            $I->dontSeeInSource("fbq('track', 'PageView'");
+        } else {
+            // 2. Check that the CompleteRegistration event is rendered
+            $I->seeInSource("fbq('track', 'CompleteRegistration'");
+            $I->seeInSource("eventID: 'reg-");
+
+            // 3. Check that a PageView event is fired
+            $I->seeInSource("fbq('track', 'PageView'");
+            $I->seeInSource("eventID: 'pgview-thanks-");
+        }
     }
 
     // --- Note on OTP Fallback Acceptance Testing ---

@@ -50,6 +50,10 @@ class EnrichingUserLoggerService implements UserLoggerInterface
             
             $this->db = new SQLite3($this->dbPath);
             
+            // Mitigate "database is locked" errors:
+            $this->db->busyTimeout(5000);
+            $this->db->exec('PRAGMA journal_mode = WAL;');
+            
             $createTableSQL = "CREATE TABLE IF NOT EXISTS logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 visitor_id TEXT,

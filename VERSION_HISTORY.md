@@ -1,5 +1,27 @@
 # Version History
 
+## 4. Log Organization & Database Optimization
+**Author:** Chinmoy Barua
+**Date:** 2025-11-25
+**Summary:**
+Implemented a log organization script, optimized SQLite database performance with WAL mode, and refined Facebook Pixel integration.
+
+**Key Changes:**
+- **Log Management:**
+  - Created `log_organizer.py` to parse and group application logs by `visitor_id`.
+- **Database Optimization:**
+  - Enabled **WAL (Write-Ahead Logging) Mode** and **Busy Timeout (5s)** for `SimpleUserLoggerService` and `RateLimiterService` to resolve "database is locked" errors.
+  - Updated `RateLimiterService` to store `reset_at` as human-readable `DATETIME` text.
+- **Frontend & Analytics:**
+  - Updated templates to conditionally render Facebook Pixel scripts based on configuration.
+- **Testing:**
+  - Added unit tests for database concurrency settings and date formats.
+  - Updated acceptance tests to conditionally check for Pixel scripts.
+- **Configuration:**
+  - Updated `.gitignore` to exclude SQLite WAL/SHM files and log text exports.
+
+---
+
 ## 3. New Architecture
 **Author:** Chinmoy Barua
 **Date:** 2025-11-24

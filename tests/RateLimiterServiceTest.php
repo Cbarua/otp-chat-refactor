@@ -127,4 +127,39 @@ class RateLimiterServiceTest extends TestCase
         @unlink($dbPath);
         $this->assertFalse(file_exists($dbPath));
     }
+
+    public function testResetAtIsStoredAsText(): void
+    {
+        $key = 'test_format_key';
+        $this->rateLimiter->check($key, 5, 60);
+
+        // Access private property $db using Reflection
+        $reflection = new \ReflectionClass($this->rateLimiter);
+        $property = $reflection->getProperty('db');
+        $property->setAccessible(true);
+        $db = $property->getValue($this->rateLimiter);
+
+        $resetAt = $db->querySingle("SELECT reset_at FROM rate_limits WHERE key = '$key'");
+
+        // Assert it is a string and looks like a date
+        $this->assertIsString($resetAt);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $resetAt);
+    }
+
+    public function testConcurrencyConfiguration(): void
+    {
+        // Access private property $db using Reflection
+        $reflection = new \ReflectionClass($this->rateLimiter);
+        $property = $reflection->getProperty('db');
+        $property->setAccessible(true);
+        $db = $property->getValue($this->rateLimiter);
+
+        // 1. Verify WAL Mode
+        $journalMode = $db->querySingle("PRAGMA journal_mode");
+        $this->assertEquals('wal', strtolower($journalMode), "Journal mode should be WAL");
+
+        // 2. Verify Busy Timeout
+        $busyTimeout = $db->querySingle("PRAGMA busy_timeout");
+        $this->assertEquals(5000, $busyTimeout, "Busy timeout should be 5000ms");
+    }
 }

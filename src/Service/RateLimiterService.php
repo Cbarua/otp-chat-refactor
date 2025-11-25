@@ -30,11 +30,15 @@ class RateLimiterService
 
             $this->db = new SQLite3($this->dbPath);
 
+            // Mitigate "database is locked" errors:
+            $this->db->busyTimeout(5000);
+            $this->db->exec('PRAGMA journal_mode = WAL;');
+
             // Create table for rate limits
             $createTableSQL = "CREATE TABLE IF NOT EXISTS rate_limits (
                 key TEXT PRIMARY KEY,
                 count INTEGER DEFAULT 0,
-                reset_at INTEGER
+                reset_at TEXT
             )";
 
             if (!$this->db->exec($createTableSQL)) {
@@ -77,7 +81,11 @@ class RateLimiterService
                 return true;
             }
 
-            if ($now > $row['reset_at']) {
+            // Handle both legacy (integer) and new (string) formats
+            $resetAt = $row['reset_at'];
+            $expiryTime = is_numeric($resetAt) ? (int) $resetAt : strtotime($resetAt);
+
+            if ($now > $expiryTime) {
                 // Window expired, reset
                 $this->reset($key, $windowSeconds);
                 return true;
@@ -115,11 +123,13 @@ class RateLimiterService
 
     private function reset(string $key, int $windowSeconds): void
     {
-        $resetAt = time() + $windowSeconds;
+        // Store as human-readable DATETIME (e.g., "2025-11-25 12:30:00")
+        $resetAt = date('Y-m-d H:i:s', time() + $windowSeconds);
+
         $stmt = $this->db->prepare("INSERT INTO rate_limits (key, count, reset_at) VALUES (:key, 0, :reset)
                                     ON CONFLICT(key) DO UPDATE SET count = 0, reset_at = :reset");
         $stmt->bindValue(':key', $key, SQLITE3_TEXT);
-        $stmt->bindValue(':reset', $resetAt, SQLITE3_INTEGER);
+        $stmt->bindValue(':reset', $resetAt, SQLITE3_TEXT);
         $stmt->execute();
     }
 

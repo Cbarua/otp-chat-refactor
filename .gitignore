@@ -9,6 +9,9 @@
 /logs/
 *.log
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.txt
 
 # OS generated files
 .DS_Store
