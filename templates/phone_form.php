@@ -55,11 +55,11 @@
         <input type="tel" id="mobile" name="mobile" placeholder="0700000000" maxlength="10" minlength="9" required>
         <input type="submit" value="Register">
 
-        <span
-            id="charging"><?php echo htmlspecialchars($config['content']['charge_text'], ENT_QUOTES, 'UTF-8'); ?></span>
     </form>
 </section>
 
+<span id="charging"><?php echo htmlspecialchars($config['content']['charge_text'], ENT_QUOTES, 'UTF-8'); ?></span>
+</div>
 <script>
     document.getElementById("leadForm").addEventListener("submit", function (e) {
         const phoneInput = document.getElementById('mobile');

@@ -205,7 +205,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('Invalid phone number. Example: 0771234567', $this->sessionData[FormController::SESSION_ERROR]);
     }
 
@@ -229,7 +229,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertArrayHasKey(FormController::SESSION_LEAD_ID, $this->sessionData);
         $this->assertEquals('otp_ref_999', $this->sessionData[FormController::SESSION_OTP_TOKEN]['referenceNo']);
         $this->assertEquals('fb.1.test_fbp', $this->sessionData[FormController::SESSION_FBP]);
@@ -252,7 +252,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
         $this->assertEquals('You are already registered!', $this->sessionData[FormController::SESSION_ALREADY_REGISTERED]);
     }
@@ -272,7 +272,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
     }
@@ -339,7 +339,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('Security check failed. Please try again.', $this->sessionData[FormController::SESSION_ERROR]);
     }
 
@@ -354,7 +354,7 @@ class FormControllerTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
     }
 }

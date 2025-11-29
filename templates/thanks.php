@@ -39,6 +39,6 @@
     </div>
 </section>
 
-<section>
+<section class="align-self-md-center">
 	<div class="alert alert-success">ඔබගේ ලියාපදිංචිය තහවුරු කිරීමට ඔබගේ දුරකතන අංකයට කෙටි පණිවිඩයක් මඟින් දැනුම් දෙනු ලැබේ</div>
 </section>

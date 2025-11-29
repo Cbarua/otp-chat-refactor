@@ -110,7 +110,7 @@ class FormController extends BaseController
         if (!$this->csrfService->validate($request->request->get('csrf_token'))) {
             $this->logger->warning('CSRF token validation failed on phone form submission.');
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
 
         $userInfo = $this->userInfoService->get($request);
@@ -121,7 +121,7 @@ class FormController extends BaseController
         if (!$this->rateLimiter->check($rateLimitKey, 5, 60)) {
             $this->logger->warning('Rate limit exceeded for phone submission.', ['ip' => $userInfo['ip']]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
         $this->rateLimiter->increment($rateLimitKey);
 
@@ -133,7 +133,7 @@ class FormController extends BaseController
         if ($phoneData === null) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_PHONE);
             $this->logger->warning('Invalid phone number submitted', ['raw_phone' => $rawPhone]);
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
 
         // 3. Log visit with phone, store FB cookies
@@ -222,7 +222,7 @@ class FormController extends BaseController
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
             // Store the opaque token for the verification step.
             $this->session->set(self::SESSION_OTP_TOKEN, $response['verificationToken']);
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         // FAILURE: No URL succeeded.
@@ -238,6 +238,6 @@ class FormController extends BaseController
                 'final_response' => $response
             ]);
         }
-        return $this->redirect('/');
+        return $this->redirect('./');
     }
 }

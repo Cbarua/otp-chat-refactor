@@ -79,7 +79,7 @@ class OtpController extends BaseController
         // Security Check: Ensure user has a token from the previous step.
         if (!$this->session->has(self::SESSION_OTP_TOKEN)) {
             $this->logger->error('OTP form accessed without a token');
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
 
         if ($this->capiService !== null) {
@@ -119,7 +119,7 @@ class OtpController extends BaseController
         if (!$this->csrfService->validate($request->request->get('csrf_token'))) {
             $this->logger->warning('CSRF token validation failed on OTP form submission.');
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         // 1. Rate Limiting Check
@@ -130,7 +130,7 @@ class OtpController extends BaseController
         if (!$this->rateLimiter->check($rateLimitKey, 5, 600)) {
             $this->logger->warning('Rate limit exceeded for OTP verification.', ['visitor_id' => $visitorId]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
         $this->rateLimiter->increment($rateLimitKey);
 
@@ -138,7 +138,7 @@ class OtpController extends BaseController
         $token = $this->session->get(self::SESSION_OTP_TOKEN);
         if (empty($token)) {
             $this->logger->error('OTP submission without a valid token.');
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
 
         // 3. Validate user input
@@ -148,7 +148,7 @@ class OtpController extends BaseController
         if (!Validator::validateOtp($rawOtp)) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_OTP);
             $this->logger->warning(self::ERROR_INVALID_OTP, ['otp' => $rawOtp]);
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         // 4. Verify OTP and handle the response
@@ -213,7 +213,7 @@ class OtpController extends BaseController
 
         if (($response['status'] ?? null) === self::OTP_INVALID) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         // For all other errors, log the failure and attempt to use a fallback API
@@ -232,7 +232,7 @@ class OtpController extends BaseController
         if (!$platform) {
             $this->logger->error('Could not determine platform for successful verification.');
             $this->session->set(self::SESSION_ERROR, 'Registration failed. Please try again.');
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         $isSubscribed = ($response['subscriptionStatus'] ?? null) === self::SUB_STATUS_PENDING || ($response['subscriptionStatus'] ?? null) === self::SUB_STATUS_REGISTERED;
@@ -244,10 +244,10 @@ class OtpController extends BaseController
                 $regId = "reg-" . uniqid();
             }
             $this->session->set(self::SESSION_REG_ID, $regId);
-            return $this->redirect('/thanks');
+            return $this->redirect('thanks');
         } else {
             $this->session->set(self::SESSION_ERROR, 'Registration failed. Please try again.');
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
     }
 
@@ -268,7 +268,7 @@ class OtpController extends BaseController
                 'has_failed_url' => !empty($failedUrl)
             ]);
             $this->session->set(self::SESSION_ERROR, 'An error occurred. Please try again later.');
-            return $this->redirect('/otp');
+            return $this->redirect('otp');
         }
 
         $userInfo = $this->userInfoService->get($request);
@@ -288,6 +288,6 @@ class OtpController extends BaseController
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
         }
 
-        return $this->redirect('/otp');
+        return $this->redirect('otp');
     }
 }

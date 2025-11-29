@@ -44,7 +44,7 @@ class ThankYouController extends BaseController
     {
         // 1. Security Check: Ensure user completed OTP
         if (!$this->session->has(self::SESSION_REG_ID) || !$this->session->has(self::SESSION_PHONE_DATA)) {
-            return $this->redirect('/');
+            return $this->redirect('./');
         }
 
         $regId = $this->session->get(self::SESSION_REG_ID);
@@ -55,14 +55,14 @@ class ThankYouController extends BaseController
         if ($this->capiService !== null) {
             // 2. Get user info for CAPI events
             $userInfo = $this->userInfoService->get($request);
-            
+
             $pageViewEventId = "pgview-thanks-" . uniqid();
             $this->session->set('page_view_id_thanks', $pageViewEventId);
-    
+
             $this->logger->info('New PageView triggered. /thanks', [
                 'page_view_id' => $pageViewEventId
             ]);
-    
+
             // Fire the PageView CAPI event
             $this->capiService->sendEvent(
                 'PageView',
@@ -71,7 +71,7 @@ class ThankYouController extends BaseController
                 $userInfo['ip'],
                 $userInfo['useragent']
             );
-    
+
             // Fire "CompleteRegistration" CAPI Event
             if (!empty($regId) && !empty($phoneData['capi_format'])) {
 
@@ -81,7 +81,7 @@ class ThankYouController extends BaseController
                 ];
 
                 $this->logger->info('CompleteRegistration event flag found. Firing CAPI + Pixel.');
-                
+
                 $this->capiService->sendEvent(
                     'CompleteRegistration',
                     $regId, // This ID is shared with the Pixel
@@ -93,7 +93,7 @@ class ThankYouController extends BaseController
                 );
             }
         }
-        
+
         // 5. Prepare data for the view
         $data = [
             'config' => $this->config,

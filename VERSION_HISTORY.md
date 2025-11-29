@@ -1,5 +1,22 @@
 # Version History
 
+## 5. UI/UX Improvements & Test Updates
+**Author:** Chinmoy Barua
+**Date:** 2025-11-29
+**Summary:**
+Refined the phone number input form with better styling and validation feedback. Updated controller tests to align with recent changes.
+
+**Key Changes:**
+- **Frontend:**
+  - Updated `templates/phone_form.php` (likely improved input structure or classes).
+  - Updated `public/assets/css/blog.css` with new styles, layout improvements, and refactored to follow standards.
+- **Controllers:**
+  - `FormController` , `OtpController` & `ThankYouController`: Updated redirects to use relative paths (`./` and `otp`) for better compatibility.
+- **Testing:**
+  - Updated `ThankYouControllerTest.php`, `OtpControllerTest.php`, and `FormControllerTest.php` to reflect recent logic changes or fix regressions.
+
+---
+
 ## 4. Log Organization & Database Optimization
 **Author:** Chinmoy Barua
 **Date:** 2025-11-25

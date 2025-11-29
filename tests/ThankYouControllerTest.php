@@ -85,7 +85,7 @@ class ThankYouControllerTest extends TestCase
     public function testShowThankYouPageFailsWithoutSession(): void
     {
         $this->controller->showThankYouPage(Request::createFromGlobals());
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertNull($this->controller->renderedView);
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
     }

@@ -75,7 +75,7 @@ class OtpControllerTest extends TestCase
         $_SERVER['HTTP_USER_AGENT'] = 'TestAgent';
         $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
         $_SERVER['HTTP_HOST'] = 'localhost';
-        $_SERVER['REQUEST_URI'] = '/otp';
+        $_SERVER['REQUEST_URI'] = 'otp';
         $_SERVER['HTTPS'] = 'on';
 
         $this->config = [
@@ -122,7 +122,7 @@ class OtpControllerTest extends TestCase
     public function testShowOtpFormSecurityCheckFails(): void
     {
         $this->controller->showOtpForm(Request::createFromGlobals());
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertNull($this->controller->renderedView);
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
     }
@@ -155,7 +155,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Security check failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -168,7 +168,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -180,7 +180,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->otpServiceMock->expects($this->never())->method('verifyOtp');
     }
 
@@ -195,7 +195,7 @@ class OtpControllerTest extends TestCase
         $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
 
         $this->controller->handleOtpForm($request);
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Invalid OTP. Must be 6 digits.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -217,7 +217,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/thanks', $this->controller->redirectUrl);
+        $this->assertEquals('thanks', $this->controller->redirectUrl);
         $this->assertArrayHasKey(OtpController::SESSION_REG_ID, $this->sessionData);
     }
 
@@ -237,7 +237,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Invalid OTP. Please enter the correct OTP.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -275,7 +275,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -293,7 +293,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -312,7 +312,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -333,7 +333,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Please try again with the new OTP sent to your phone.', $this->sessionData[OtpController::SESSION_ERROR]);
         $this->assertEquals('new-ref', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
     }
@@ -355,7 +355,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('/otp', $this->controller->redirectUrl);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
