@@ -3,7 +3,15 @@
 
 // 1. Load Environment Variables
 // This assumes .env is in the parent directory
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
+$envFile = '.env';
+
+// Only allow switching via cookie if NOT in production (safety check)
+// OR if you are sure your .env.test is safe to expose logic-wise.
+if (isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+    $envFile = '.env.test';
+}
+
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..', $envFile);
 $dotenv->load();
 
 // 2. Configure Environment & Error Logging

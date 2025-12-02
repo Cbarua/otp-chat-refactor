@@ -9,6 +9,7 @@ use Tests\Support\AcceptanceTester;
 final class RegistrationFlowCest
 {
     private const ERROR_OTP_INVALID = 'Invalid OTP. Please enter the correct OTP.';
+    private const ERROR_OTP_NEW = 'Please try again with the new OTP sent to your phone.';
     private const ERROR_CSRF = 'Security check failed. Please try again.';
     private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
 
@@ -27,6 +28,12 @@ final class RegistrationFlowCest
 
     public function _before(AcceptanceTester $I): void
     {
+        // 1. On the home page
+        $I->amOnPage('/');
+
+        // Set cookie to tell the app to use .env.test
+        $I->setCookie('APP_ENV', 'testing');
+
         // Clear logs only once before the first test
         if (!self::$logsCleared) {
             $this->clearLogFiles();
@@ -58,6 +65,7 @@ final class RegistrationFlowCest
         $logFiles = [
             __DIR__ . "/../../logs/app/app-{$today}.log",
             __DIR__ . "/../../logs/capi/capi-{$today}.log",
+            __DIR__ . "/../../logs/mock_api.log",
         ];
 
         foreach ($logFiles as $file) {
@@ -81,6 +89,7 @@ final class RegistrationFlowCest
         $logFiles = [
             __DIR__ . "/../../logs/app/app-{$today}.log",
             __DIR__ . "/../../logs/capi/capi-{$today}.log",
+            __DIR__ . "/../../logs/mock_api.log",
         ];
 
         foreach ($logFiles as $file) {
@@ -93,9 +102,47 @@ final class RegistrationFlowCest
         $I->wantTo($description);
     }
 
-    // --- Core User Flow Tests ---
+    public function testRateLimitFallback(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test Rate Limit Fallback (Exhaust Limit -> New OTP -> Success)');
 
-    public function testSuccessfulPath(AcceptanceTester $I)
+        // 1. On the home page
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+        $I->wait(5); // Wait for API
+
+        // 2. On OTP page
+        $I->seeInCurrentUrl('/otp');
+
+        // 3. Exhaust rate limit (5 attempts)
+        // The controller checks rate limit BEFORE processing.
+        // So 5 failed attempts means the NEXT one (6th) should be blocked/fallback.
+        for ($i = 1; $i <= 6; $i++) {
+            $I->fillField('otp', '12345' . $i); // Invalid OTPs
+            $I->click('Verify');
+
+            if ($i == 6) break;
+            $I->seeInCurrentUrl('/otp');
+        }
+
+        // 4. The 6th attempt should trigger fallback because rate limit is exceeded
+        // Wait for fallback API call
+        $I->wait(5);
+
+        // 5. Should be back on OTP page with "New OTP" message
+        $I->seeInCurrentUrl('/otp');
+        $I->see(self::ERROR_OTP_NEW, '.alert-danger');
+
+        // 6. Verify that we can now complete the flow with the correct OTP
+        // The rate limit should have been cleared.
+        $I->fillField('otp', self::MAGIC_OTP);
+        $I->click('Verify');
+        $I->wait(3);
+        $I->seeInCurrentUrl('/thanks');
+    }
+
+    public function testSuccessfulPathWithFallback(AcceptanceTester $I)
     {
         $this->logTestStart($I, 'Test the complete successful registration flow');
 
@@ -126,6 +173,42 @@ final class RegistrationFlowCest
         // 5. On Thanks page
         $I->seeInCurrentUrl('/thanks');
         $I->see('ඔබගේ ලියාපදිංචිය තහවුරු කිරීමට');
+    }
+
+    public function testOtpFallback(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test OTP verification fallback (Fail -> New OTP -> Success)');
+
+        // 1. On the home page
+        $I->amOnPage('/');
+
+        // 2. Submit valid phone
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        // Wait for the redirection (API calls: fail1 -> fail2 -> success)
+        $I->wait(5);
+
+        // 3. Should eventually land on OTP page
+        $I->seeInCurrentUrl('/otp');
+        $I->see('PIN අංකය ඇතුළත් කරන්න');
+
+        // 4. Enter '000000' to trigger simulated system error
+        $I->fillField('otp', '000000');
+        $I->click('Verify');
+
+        // Wait for fallback logic (it should try other URLs and get a new OTP)
+        $I->wait(5);
+
+        // 5. Should be back on OTP page with "New OTP" message
+        $I->seeInCurrentUrl('/otp');
+        $I->see(self::ERROR_OTP_NEW, '.alert-danger');
+
+        // 6. Verify that we can now complete the flow with the correct OTP
+        $I->fillField('otp', self::MAGIC_OTP);
+        $I->click('Verify');
+        $I->wait(3);
+        $I->seeInCurrentUrl('/thanks');
     }
 
     // --- JavaScript Validation Tests ---
@@ -316,22 +399,6 @@ final class RegistrationFlowCest
             $I->seeInSource("eventID: 'pgview-thanks-");
         }
     }
-
-    // --- Note on OTP Fallback Acceptance Testing ---
-    // The OtpController has been refactored to include a fallback mechanism
-    // for API failures during OTP verification. Reliably testing this specific
-    // scenario at the acceptance level (e.g., Codeception) is challenging
-    // without introducing test-specific logic into the application code
-    // (e.g., using "magic" phone numbers that simulate API failures, or
-    // configuring a test API mock server).
-    //
-    // Since acceptance tests focus on user-observable behavior and the
-    // existing error messages and redirects for invalid/failed OTPs remain
-    // unchanged, the current set of acceptance tests accurately reflects
-    // the user experience. A dedicated acceptance test for fallback
-    // success/failure would require more advanced environment setup or
-    // application modifications to control external service behavior during tests.
-    // This is a known limitation in the current acceptance testing approach.
 
     public function testRateLimiting(AcceptanceTester $I)
     {

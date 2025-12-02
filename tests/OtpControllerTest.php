@@ -119,14 +119,14 @@ class OtpControllerTest extends TestCase
         unset($GLOBALS['mock_random_bytes_fail_otp']);
     }
 
-    public function testShowOtpFormSecurityCheckFails(): void
+    public function testShowOtpFormSecurityCheckFailsNoToken(): void
     {
         $this->controller->showOtpForm(Request::createFromGlobals());
         $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertNull($this->controller->renderedView);
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
     }
-
+    
     public function testShowOtpFormFiresPageViewAndLeadEvents(): void
     {
         $this->sessionData = [
@@ -148,6 +148,31 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
     }
 
+    public function testShowOtpFormCapiServiceNull(): void
+    {
+        $controller = new TestableOtpController(
+            $this->config,
+            $this->otpServiceMock,
+            null, // capiService is null
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $request = Request::createFromGlobals();
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123'];
+        $this->sessionData[OtpController::SESSION_LEAD_ID] = 'lead-123';
+        $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['capi_format' => '94771234567'];
+
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('token');
+
+        $controller->showOtpForm($request);
+
+        $this->assertEquals('otp_form', $controller->renderedView);
+    }
+    
     public function testHandleOtpFormCsrfCheckFails(): void
     {
         $request = new Request([], ['csrf_token' => 'invalid-token']);
@@ -158,30 +183,69 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Security check failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
-
-    public function testHandleOtpFormRateLimitExceeded(): void
-    {
-        $request = new Request([], ['csrf_token' => 'valid-token']);
-        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
-
-        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(false);
-
-        $this->controller->handleOtpForm($request);
-
-        $this->assertEquals('otp', $this->controller->redirectUrl);
-        $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
-    }
-
     public function testHandleOtpFormSecurityCheckFailsNoToken(): void
     {
         $request = new Request([], ['csrf_token' => 'valid-token']);
         $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
-        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        // Rate limiter should NOT be called if token is missing (sanity check first)
+        $this->rateLimiterMock->expects($this->never())->method('check');
 
         $this->controller->handleOtpForm($request);
 
         $this->assertEquals('./', $this->controller->redirectUrl);
         $this->otpServiceMock->expects($this->never())->method('verifyOtp');
+    }
+
+    public function testHandleOtpFormRateLimitExceededTriggersFallback(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
+            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+        ];
+        $request = new Request([], ['csrf_token' => 'valid-token']);
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+
+        // Rate limit check fails
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(false);
+
+        // Expect fallback call
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', 'tel:123', $this->anything(), ['url1'])
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+
+        // Expect rate limit clear
+        $this->rateLimiterMock->expects($this->once())->method('clear');
+
+        $this->controller->handleOtpForm($request);
+
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        $this->assertEquals('Please try again with the new OTP sent to your phone.', $this->sessionData[OtpController::SESSION_ERROR]);
+        $this->assertEquals('new-ref', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
+    }
+
+    public function testHandleOtpFormRateLimitExceededFallbackFails(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
+            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+        ];
+        $request = new Request([], ['csrf_token' => 'valid-token']);
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+
+        // Rate limit check fails
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(false);
+
+        // Fallback also fails
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'error']);
+
+        $this->controller->handleOtpForm($request);
+
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        // Should show rate limit error since it was triggered by rate limit
+        $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
     public function testHandleOtpFormInvalidFormat(): void
@@ -258,6 +322,9 @@ class OtpControllerTest extends TestCase
         $this->controller->handleOtpForm($request);
 
         $this->assertStringStartsWith('reg-', $this->sessionData[OtpController::SESSION_REG_ID]);
+        // Verify that redirects to thank you page
+        $this->assertEquals('thanks', $this->controller->redirectUrl);
+        $this->assertArrayHasKey(OtpController::SESSION_REG_ID, $this->sessionData);
     }
 
     public function testHandleSuccessfulVerificationMissingPlatform(): void
@@ -318,8 +385,10 @@ class OtpControllerTest extends TestCase
 
     public function testHandleFailedVerificationFallbackSuccess(): void
     {
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'];
-        $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['platform' => 'ideamart', 'telco_format' => 'tel:123'];
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url2', 'failedUrls' => ['url0', 'url1']],
+            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+        ];
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
 
@@ -329,19 +398,30 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
 
         // Fallback succeeds
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+        // Expect failedUrls to include url0, url1, and url2
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', 'tel:123', $this->anything(), ['url0', 'url1', 'url2'])
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+
+        // Expect rate limit clear
+        $this->rateLimiterMock->expects($this->once())->method('clear');
 
         $this->controller->handleOtpForm($request);
 
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Please try again with the new OTP sent to your phone.', $this->sessionData[OtpController::SESSION_ERROR]);
         $this->assertEquals('new-ref', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
+        // Check if failedUrls are updated in new token
+        $this->assertEquals(['url0', 'url1', 'url2'], $this->sessionData[OtpController::SESSION_OTP_TOKEN]['failedUrls']);
     }
 
     public function testHandleFailedVerificationFallbackFails(): void
     {
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'];
-        $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['platform' => 'ideamart', 'telco_format' => 'tel:123'];
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
+            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+        ];
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
 
@@ -357,30 +437,5 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
-    }
-
-    public function testShowOtpFormCapiServiceNull(): void
-    {
-        $controller = new TestableOtpController(
-            $this->config,
-            $this->otpServiceMock,
-            null, // capiService is null
-            $this->loggerMock,
-            $this->userInfoServiceMock,
-            $this->sessionServiceMock,
-            $this->csrfServiceMock,
-            $this->rateLimiterMock
-        );
-
-        $request = Request::createFromGlobals();
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123'];
-        $this->sessionData[OtpController::SESSION_LEAD_ID] = 'lead-123';
-        $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['capi_format' => '94771234567'];
-
-        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('token');
-
-        $controller->showOtpForm($request);
-
-        $this->assertEquals('otp_form', $controller->renderedView);
     }
 }

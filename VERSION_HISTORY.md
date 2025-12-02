@@ -1,5 +1,26 @@
 # Version History
 
+## 6. Mock API Enhancements & OtpController Rate Limit Fallback And Refactoring
+**Author:** Chinmoy Barua
+**Date:** 2025-12-02
+**Summary:**
+Enhanced the Mock API to support dynamic failure simulation and added comprehensive acceptance tests for fallback scenarios. Refactored `OtpController` to improve code quality and maintainability.
+
+**Key Changes:**
+- **Mock API:**
+  - Updated `MockApiController.php` to dynamically simulate success/failure based on URL keywords.
+  - Added support for simulating system errors during verification (OTP '000000').
+- **Acceptance Tests:**
+  - Added `testOtpFallback` to verify fallback during verification failure.
+  - Added `testRateLimitFallback` to verify fallback during rate limit exhaustion.
+  - Updated `.env.test` with a chain of fallback URLs.
+- **Refactoring:**
+  - Added Rate limit fallback logic with clear rate limit reset time when new otp is sent.
+  - Refactored `OtpController.php` by extracting complex logic into private methods (`validateOtpRequest`, `processOtp`, `attemptFallback`, `handleFallbackSuccess`, `handleFallbackFailure`).
+  - Improved readability and testability of the controller.
+
+---
+
 ## 5. UI/UX Improvements & Test Updates
 **Author:** Chinmoy Barua
 **Date:** 2025-11-29

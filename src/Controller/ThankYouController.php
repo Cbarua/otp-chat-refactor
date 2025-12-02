@@ -105,13 +105,16 @@ class ThankYouController extends BaseController
             'eventData' => ($customData !== null) ? json_encode($customData) : null
         ];
 
+        $otpToken = $this->session->get(self::SESSION_OTP_TOKEN);
+        $usedUrl = $otpToken['usedApiUrl'] ?? 'unknown';
+        $this->logger->info('Thank You page reached. Conversion successful.', ['url' => $usedUrl]);
+
         // 6. Clear session to prevent re-firing
         $this->session->unset(self::SESSION_REG_ID);
         $this->session->unset(self::SESSION_OTP_TOKEN);
         // We keep 'phone_data' just in case, but clear sensitive IDs
 
         // 7. Render the view
-        $this->logger->info('Thank You page reached. Conversion successful.');
         return $this->render('thanks', $data);
     }
 }

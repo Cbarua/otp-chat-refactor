@@ -162,4 +162,27 @@ class RateLimiterServiceTest extends TestCase
         $busyTimeout = $db->querySingle("PRAGMA busy_timeout");
         $this->assertEquals(5000, $busyTimeout, "Busy timeout should be 5000ms");
     }
+
+    public function testClearRemovesKey(): void
+    {
+        $key = 'test_clear_key';
+        $this->rateLimiter->check($key, 5, 60);
+        $this->rateLimiter->increment($key);
+
+        // Verify it exists
+        $reflection = new \ReflectionClass($this->rateLimiter);
+        $property = $reflection->getProperty('db');
+        $property->setAccessible(true);
+        $db = $property->getValue($this->rateLimiter);
+
+        $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
+        $this->assertEquals(1, $count);
+
+        // Clear it
+        $this->rateLimiter->clear($key);
+
+        // Verify it's gone
+        $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
+        $this->assertEquals(0, $count);
+    }
 }

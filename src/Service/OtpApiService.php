@@ -51,6 +51,7 @@ class OtpApiService implements OtpApiInterface
         }
 
         $lastResponse = [];
+        $failedUrls = [];
         foreach ($baseUrls as $baseUrl) {
             $url = rtrim($baseUrl, '/') . '/getOtp.php';
 
@@ -72,6 +73,7 @@ class OtpApiService implements OtpApiInterface
                     'verificationToken' => [
                         'referenceNo' => $response['referenceNo'],
                         'usedApiUrl' => $baseUrl,
+                        'failedUrls' => $failedUrls,
                         'platform' => $platform // Include platform for fallback logic
                     ],
                     'originalResponse' => $response
@@ -82,6 +84,7 @@ class OtpApiService implements OtpApiInterface
                 'base_url' => $baseUrl,
                 'response' => $response
             ]);
+            $failedUrls[] = $baseUrl;
         }
 
         // If the loop completes, all URLs have failed.

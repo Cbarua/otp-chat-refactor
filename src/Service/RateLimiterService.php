@@ -121,6 +121,24 @@ class RateLimiterService
         }
     }
 
+    /**
+     * Clears the rate limit for a specific key.
+     */
+    public function clear(string $key): void
+    {
+        if (!$this->db) {
+            return;
+        }
+
+        try {
+            $stmt = $this->db->prepare("DELETE FROM rate_limits WHERE key = :key");
+            $stmt->bindValue(':key', $key, SQLITE3_TEXT);
+            $stmt->execute();
+        } catch (Exception $e) {
+            $this->logger->error("RateLimiterService Clear Error", ['error' => $e->getMessage()]);
+        }
+    }
+
     private function reset(string $key, int $windowSeconds): void
     {
         // Store as human-readable DATETIME (e.g., "2025-11-25 12:30:00")
