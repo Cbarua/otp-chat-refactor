@@ -4,28 +4,6 @@
 // This template has access to $config, $pageViewEventId, $testEventCode, $errorMessage, etc.
 ?>
 
-<?php if ($pixelId): ?>
-    <script>
-        // Re-init pixel with Advanced Matching
-        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', {
-            external_id: '<?php echo htmlspecialchars($externalId, ENT_QUOTES, 'UTF-8'); ?>',
-            country: '<?php echo htmlspecialchars($country, ENT_QUOTES, 'UTF-8'); ?>'
-                <?php if (!empty($phoneCapi)): ?>, ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'<?php endif; ?>
-        });
-
-        <?php
-        // ONLY fire the PageView Pixel event if it's NOT an error redirect.
-        // The CAPI event was already skipped in the controller.
-        if (!empty($pageViewEventId)):
-            ?>
-            fbq('track', 'PageView',
-                {}, // Custom data (optional)
-                { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
-            );
-        <?php endif; ?>
-    </script>
-<?php endif; ?>
-
 <section class="img-section">
     <div class="img-container">
         <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>"

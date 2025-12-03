@@ -15,7 +15,7 @@
     
     <link rel="stylesheet" href="assets/css/blog.css">
     
-    <?php if ($pixelId): ?>
+    <?php if (!empty($pixelId)): ?>
         <script>
             ! function(f, b, e, v, n, t, s) {
                 if (f.fbq) return;
@@ -37,12 +37,42 @@
                 'https://connect.facebook.net/en_US/fbevents.js');
             
             // Initialize the Pixel
-            fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>');
+            fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', {
+                external_id: '<?php echo htmlspecialchars($externalId, ENT_QUOTES, 'UTF-8'); ?>'
+                <?php if (!empty($phoneCapi)): ?>, 
+                    country: '<?php echo htmlspecialchars($country, ENT_QUOTES, 'UTF-8'); ?>',
+                    ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'
+                <?php endif; ?>
+            });
         </script>
-        <noscript><img height="1" width="1" style="display:none"
-                src="https://www.facebook.com/tr?id=<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>&ev=PageView&noscript=1" /></noscript>
-        <title>Welcome</title>
+        <noscript>
+            <img height="1" width="1" style="display:none"
+                src="https://www.facebook.com/tr?id=<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>&ev=PageView&noscript=1" />
+        </noscript>
+
+        <?php if (!empty($pageViewEventId)): ?>
+            <script>
+                // Fire the PageView event for the /otp page
+                fbq('track', 'PageView',
+                    {},
+                    { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
+                );
+            </script>
+        <?php endif; ?>
     <?php endif; ?>
+
+    <?php if (!empty($gaMeasurementId)): ?>
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=<?php echo htmlspecialchars($gaMeasurementId, ENT_QUOTES, 'UTF-8'); ?>"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', '<?php echo htmlspecialchars($gaMeasurementId, ENT_QUOTES, 'UTF-8'); ?>');
+        </script>
+    <?php endif; ?>
+    <title>Welcome</title>
 </head>
 <body>
     <div class="box-container">

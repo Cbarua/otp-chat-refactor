@@ -4,23 +4,8 @@
 // This template has access to $config, $leadEventId, $phoneCapi, $errorMessage, etc.
 ?>
 
-<?php if ($pixelId): ?>
+<?php if (!empty($pixelId)): ?>
     <script>
-        // Re-init pixel with Advanced Matching
-        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', {
-            external_id: '<?php echo htmlspecialchars($externalId, ENT_QUOTES, 'UTF-8'); ?>',
-            country: '<?php echo htmlspecialchars($country, ENT_QUOTES, 'UTF-8'); ?>'
-                <?php if (!empty($phoneCapi)): ?>, ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'<?php endif; ?>
-        });
-
-        <?php if (!empty($pageViewEventId)): ?>
-            // Fire the PageView event for the /otp page
-            fbq('track', 'PageView',
-                {},
-                { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
-            );
-        <?php endif; ?>
-
         <?php if (!empty($leadEventId)): ?>
             // 2. Fire the Lead event (ONLY RUNS ONCE)
             // This shares the eventID with the CAPI event

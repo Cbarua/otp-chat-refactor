@@ -1,5 +1,26 @@
 # Version History
 
+## 8. Google Analytics 4 Implementation & Minor refactoring of browser pixel
+**Author:** Chinmoy Barua
+**Date:** 2025-12-03
+**Summary:**
+Implemented Google Analytics 4 (GA4) to track user traffic, engagement, and conversion funnels. This includes configuration updates, controller modifications to pass the Measurement ID, and template updates to embed the tracking script.
+
+**Key Changes:**
+- **Configuration:**
+  - Added `GA_MEASUREMENT_ID` to `.env`.
+  - Updated `config/app.php` to expose `ga_measurement_id`.
+- **Controllers:**
+  - Updated `FormController`, `OtpController`, and `ThankYouController` to pass `gaMeasurementId` to views.
+  - Updated `FormController` to only pass country code to the view if a valid phone number is submitted.
+- **Templates:**
+  - Added standard GA4 tracking script to `phone_form.php`, `otp_form.php`, and `thanks.php`.
+  - Moved browser pixel advanced matching script from `phone_form.php`, `otp_form.php` and `thanks.php` to `_layout_header.php`.
+- **Testing:**
+  - Added `testGoogleAnalyticsOnPhoneForm`, `testGoogleAnalyticsOnOtpForm`, and `testGoogleAnalyticsOnThanksPage` to `RegistrationFlowCest.php`.
+
+---
+
 ## 7. Facebook CAPI & Browser Pixel Advanced Matching
 **Author:** Chinmoy Barua
 **Date:** 2025-12-03

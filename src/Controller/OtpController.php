@@ -102,6 +102,7 @@ class OtpController extends BaseController
             'country' => 'lk',
             'errorMessage' => $this->session->get(self::SESSION_ERROR),
             'csrfToken' => $this->csrfService->getToken(),
+            'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
         ];
 
         $this->session->unset(self::SESSION_ERROR);

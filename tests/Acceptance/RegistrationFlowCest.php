@@ -334,9 +334,9 @@ final class RegistrationFlowCest
             $I->dontSeeInSource("fbq('init'");
             $I->dontSeeInSource("fbq('track', 'PageView'");
         } else {
-            $I->seeInSource("fbq('init', '$pixelId')");
+            $I->seeInSource("fbq('init', '$pixelId'");
             $I->seeInSource("external_id: 'v_");
-            $I->seeInSource("country: 'lk'");
+            $I->dontSeeInSource("country: 'lk'");
 
             // 2. Check that the PageView event is rendered with its unique ID
             $I->seeInSource("fbq('track', 'PageView'");
@@ -412,6 +412,74 @@ final class RegistrationFlowCest
             $I->seeInSource("fbq('track', 'PageView'");
             $I->seeInSource("eventID: 'pgview-thanks-");
         }
+    }
+
+    // --- Google Analytics Firing Tests ---
+    public function testGoogleAnalyticsOnPhoneForm(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test Google Analytics firing on the phone form');
+        $I->amOnPage('/');
+
+        $gaMeasurementId = $this->config['google']['ga_measurement_id'] ?? null;
+        
+        if (empty($gaMeasurementId)) {
+            $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
+        } else {
+            $I->seeInSource("gtag('config', '$gaMeasurementId');");
+        }
+
+    }
+
+    public function testGoogleAnalyticsOnOtpForm(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test Google Analytics firing on the OTP form');
+
+        // 1. Get to the OTP page
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        // Wait for the redirection to happen (API call takes time)
+        $I->wait(3);
+        $I->seeInCurrentUrl('/otp');
+
+        $gaMeasurementId = $this->config['google']['ga_measurement_id'] ?? null;
+        
+        if (empty($gaMeasurementId)) {
+            $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
+        } else {
+            $I->seeInSource("gtag('config', '$gaMeasurementId');");
+        }
+
+    }
+
+    public function testGoogleAnalyticsOnThanksPage(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test Google Analytics firing on the Thank You page');
+
+        // 1. Get to the Thanks page
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        // Wait for the redirection to happen (API call takes time)
+        $I->wait(3);
+        $I->seeInCurrentUrl('/otp');
+        $I->fillField('otp', self::MAGIC_OTP);
+        $I->click('Verify');
+
+        // Wait for the redirection to happen (API call takes time)
+        $I->wait(3);
+        $I->seeInCurrentUrl('/thanks');
+
+        $gaMeasurementId = $this->config['google']['ga_measurement_id'] ?? null;
+
+        if (empty($gaMeasurementId)) {
+            $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
+        } else {
+            $I->seeInSource("gtag('config', '$gaMeasurementId');");
+        }
+
     }
 
     public function testRateLimiting(AcceptanceTester $I)

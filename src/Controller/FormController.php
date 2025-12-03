@@ -94,6 +94,7 @@ class FormController extends BaseController
             'externalId' => $this->session->get(self::SESSION_VISITOR_ID),
             'country' => 'lk',
             'csrfToken' => $this->csrfService->getToken(),
+            'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
         ];
 
         // Clear session data after displaying it
@@ -211,8 +212,12 @@ class FormController extends BaseController
             'fbp' => $fbp,
             'fbc' => $fbc,
             'external_id' => $visitorId,
-            'country' => 'lk' // Defaulting to LK as per current scope
         ];
+
+        // Only add country if we have a valid phone number (implies local user)
+        if (!empty($phoneForMatching)) {
+            $userDataArray['country'] = 'lk';
+        }
 
         $this->logger->info('New PageView triggered. /', [
             'page_view_id' => $pageViewEventId,

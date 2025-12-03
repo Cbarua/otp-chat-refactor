@@ -115,7 +115,8 @@ class ThankYouController extends BaseController
             'phoneCapi' => $phoneData['capi_format'] ?? null,
             'externalId' => $this->session->get('visitor_id'),
             'country' => 'lk',
-            'eventData' => ($customData !== null) ? json_encode($customData) : null
+            'eventData' => ($customData !== null) ? json_encode($customData) : null,
+            'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
         ];
 
         $otpToken = $this->session->get(self::SESSION_OTP_TOKEN);

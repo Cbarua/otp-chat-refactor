@@ -160,7 +160,7 @@ class FormControllerTest extends TestCase
                     return $userData['ip'] === '127.0.0.1' &&
                         $userData['agent'] === 'TestAgent' &&
                         $userData['external_id'] === 'v_test123' &&
-                        $userData['country'] === 'lk';
+                        !isset($userData['country']); // Country should NOT be set for new visit
                 })
             );
 

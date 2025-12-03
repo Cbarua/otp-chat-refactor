@@ -75,6 +75,10 @@ return [
         'test_event_code' => $_ENV['TEST_EVENT_CODE'] ?? null,
     ],
 
+    'google' => [
+        'ga_measurement_id' => $_ENV['GA_MEASUREMENT_ID'] ?? null,
+    ],
+
     'content' => [
         'img_url' => $_ENV['IMG_URL'] ?? __DIR__ . "/../public/assets/images/Girl in a salwar.jpeg",
         'img_alt' => $_ENV['IMG_ALT'] ?? 'Girl in a salwar',
