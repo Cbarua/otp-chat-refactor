@@ -98,6 +98,8 @@ class OtpController extends BaseController
             'phoneCapi' => $phoneData['capi_format'] ?? null,
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
+            'externalId' => $this->session->get('visitor_id'),
+            'country' => 'lk',
             'errorMessage' => $this->session->get(self::SESSION_ERROR),
             'csrfToken' => $this->csrfService->getToken(),
         ];
@@ -188,7 +190,25 @@ class OtpController extends BaseController
 
             $this->logger->info('New PageView triggered. /otp', ['page_view_id' => $pageViewEventId]);
 
-            $this->capiService->sendEvent('PageView', $pageViewEventId, $request->getUri(), $userInfo['ip'], $userInfo['useragent']);
+            $visitorId = $this->session->get('visitor_id');
+            $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
+            $phoneForMatching = $phoneData['capi_format'] ?? null;
+
+            // Retrieve fbp/fbc from session (set in FormController)
+            $fbp = $this->session->get('fbp');
+            $fbc = $this->session->get('fbc');
+
+            $userDataArray = [
+                'ip' => $userInfo['ip'],
+                'agent' => $userInfo['useragent'],
+                'phone' => $phoneForMatching,
+                'fbp' => $fbp,
+                'fbc' => $fbc,
+                'external_id' => $visitorId,
+                'country' => 'lk'
+            ];
+
+            $this->capiService->sendEvent('PageView', $pageViewEventId, $request->getUri(), $userDataArray);
         } else {
             $this->logger->info('Rendering /otp to display error, skipping new PageView.');
         }
@@ -200,13 +220,29 @@ class OtpController extends BaseController
         // Fire a pending Lead event if it exists
         if ($this->session->has(self::SESSION_LEAD_ID) && isset($phoneData['capi_format'])) {
             $this->logger->info('Lead event flag found. Firing CAPI + Pixel.');
+
+            $visitorId = $this->session->get('visitor_id');
+            $phoneForMatching = $phoneData['capi_format'];
+
+            // Retrieve fbp/fbc from session
+            $fbp = $this->session->get('fbp');
+            $fbc = $this->session->get('fbc');
+
+            $userDataArray = [
+                'ip' => $userInfo['ip'],
+                'agent' => $userInfo['useragent'],
+                'phone' => $phoneForMatching,
+                'fbp' => $fbp,
+                'fbc' => $fbc,
+                'external_id' => $visitorId,
+                'country' => 'lk'
+            ];
+
             $this->capiService->sendEvent(
                 'Lead',
                 $this->session->get(self::SESSION_LEAD_ID),
                 $request->getUri(),
-                $userInfo['ip'],
-                $userInfo['useragent'],
-                $phoneData['capi_format']
+                $userDataArray
             );
             // Unset lead event id after data for view is prepared
         }

@@ -6,12 +6,12 @@
 
 <?php if ($pixelId): ?>
 <script>
-    <?php if (!empty($phoneCapi)): ?>
-        // Re-init pixel with phone hash for Advanced Matching
-        fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', { 
-            ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>' 
-        });
-    <?php endif; ?>
+    // Re-init pixel with Advanced Matching
+    fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', { 
+        external_id: '<?php echo htmlspecialchars($externalId, ENT_QUOTES, 'UTF-8'); ?>',
+        country: '<?php echo htmlspecialchars($country, ENT_QUOTES, 'UTF-8'); ?>'
+        <?php if (!empty($phoneCapi)): ?>, ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'<?php endif; ?>
+    });
 
     <?php if (!empty($pageViewEventId)): ?>
         // Fire the PageView event for the /thanks page

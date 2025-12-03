@@ -31,8 +31,13 @@ final class RegistrationFlowCest
         // 1. On the home page
         $I->amOnPage('/');
 
-        // Set cookie to tell the app to use .env.test
+        // Set cookie to tell the app to use .env.test environment
+        // Only can set cookie in browser
         $I->setCookie('APP_ENV', 'testing');
+
+        // Reload config to ensure we have the test environment settings
+        $_COOKIE['APP_ENV'] = 'testing';
+        $this->config = require __DIR__ . '/../../config/app.php';
 
         // Clear logs only once before the first test
         if (!self::$logsCleared) {
@@ -122,7 +127,8 @@ final class RegistrationFlowCest
             $I->fillField('otp', '12345' . $i); // Invalid OTPs
             $I->click('Verify');
 
-            if ($i == 6) break;
+            if ($i == 6)
+                break;
             $I->seeInCurrentUrl('/otp');
         }
 
@@ -329,6 +335,8 @@ final class RegistrationFlowCest
             $I->dontSeeInSource("fbq('track', 'PageView'");
         } else {
             $I->seeInSource("fbq('init', '$pixelId')");
+            $I->seeInSource("external_id: 'v_");
+            $I->seeInSource("country: 'lk'");
 
             // 2. Check that the PageView event is rendered with its unique ID
             $I->seeInSource("fbq('track', 'PageView'");
@@ -355,6 +363,9 @@ final class RegistrationFlowCest
             $I->dontSeeInSource("fbq('track', 'PageView'");
             $I->dontSeeInSource("fbq('track', 'Lead'");
         } else {
+            $I->seeInSource("external_id: 'v_");
+            $I->seeInSource("country: 'lk'");
+
             // 2. Check that the PageView event for this page is rendered
             $I->seeInSource("fbq('track', 'PageView'");
             $I->seeInSource("eventID: 'pgview-otp-");
@@ -390,6 +401,9 @@ final class RegistrationFlowCest
             $I->dontSeeInSource("fbq('track', 'CompleteRegistration'");
             $I->dontSeeInSource("fbq('track', 'PageView'");
         } else {
+            $I->seeInSource("external_id: 'v_");
+            $I->seeInSource("country: 'lk'");
+
             // 2. Check that the CompleteRegistration event is rendered
             $I->seeInSource("fbq('track', 'CompleteRegistration'");
             $I->seeInSource("eventID: 'reg-");

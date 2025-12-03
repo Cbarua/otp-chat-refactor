@@ -148,7 +148,22 @@ class FormControllerTest extends TestCase
         $request = Request::createFromGlobals();
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
-        $this->capiServiceMock->expects($this->once())->method('sendEvent');
+
+        // Expect sendEvent with array
+        $this->capiServiceMock->expects($this->once())
+            ->method('sendEvent')
+            ->with(
+                'PageView',
+                $this->stringStartsWith('pgview-'),
+                'https://localhost/', // HTTPS because $_SERVER['HTTPS'] = 'on'
+                $this->callback(function ($userData) {
+                    return $userData['ip'] === '127.0.0.1' &&
+                        $userData['agent'] === 'TestAgent' &&
+                        $userData['external_id'] === 'v_test123' &&
+                        $userData['country'] === 'lk';
+                })
+            );
+
         $this->userLoggerMock->expects($this->once())->method('logVisit')->with('v_test123', '127.0.0.1', 'TestAgent', null);
 
         $this->controller->showPhoneForm($request);
@@ -158,6 +173,33 @@ class FormControllerTest extends TestCase
         $this->assertNull($this->controller->renderData['errorMessage']);
         $this->assertNull($this->controller->renderData['alreadyRegistered']);
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
+    }
+
+    public function testShowPhoneFormGeneratesFbcFromQueryParam(): void
+    {
+        $request = Request::createFromGlobals();
+        $request->query->set('fbclid', 'test_fbclid_val');
+
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
+
+        $this->capiServiceMock->expects($this->once())
+            ->method('sendEvent')
+            ->with(
+                'PageView',
+                $this->anything(),
+                $this->anything(),
+                $this->callback(function ($userData) {
+                    // Check if fbc is generated and passed
+                    return strpos($userData['fbc'], 'fb.1.') === 0 &&
+                        strpos($userData['fbc'], 'test_fbclid_val') !== false;
+                })
+            );
+
+        $this->controller->showPhoneForm($request);
+
+        // Verify it's stored in session
+        $this->assertArrayHasKey(FormController::SESSION_FBC, $this->sessionData);
+        $this->assertStringContainsString('test_fbclid_val', $this->sessionData[FormController::SESSION_FBC]);
     }
 
     public function testShowPhoneFormWithErrorRedirect(): void

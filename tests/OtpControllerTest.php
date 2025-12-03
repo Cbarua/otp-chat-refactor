@@ -126,18 +126,39 @@ class OtpControllerTest extends TestCase
         $this->assertNull($this->controller->renderedView);
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
     }
-    
+
     public function testShowOtpFormFiresPageViewAndLeadEvents(): void
     {
         $this->sessionData = [
             OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123'],
             OtpController::SESSION_LEAD_ID => 'lead-abc-999',
-            OtpController::SESSION_PHONE_DATA => ['capi_format' => '94771234567']
+            OtpController::SESSION_PHONE_DATA => ['capi_format' => '94771234567'],
+            'visitor_id' => 'v_test123',
+            'fbp' => 'fb.1.test_fbp',
+            'fbc' => 'fb.1.test_fbc'
         ];
         $request = Request::createFromGlobals();
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
-        $this->capiServiceMock->expects($this->exactly(2))->method('sendEvent');
+
+        // Expect 2 calls to sendEvent
+        $this->capiServiceMock->expects($this->exactly(2))
+            ->method('sendEvent')
+            ->with(
+                $this->stringContains(''), // Event Name (PageView or Lead)
+                $this->anything(), // Event ID
+                $this->anything(), // URL
+                $this->callback(function ($userData) {
+                    // Verify user data is passed correctly for both events
+                    return $userData['ip'] === '127.0.0.1' &&
+                        $userData['agent'] === 'TestAgent' &&
+                        $userData['external_id'] === 'v_test123' &&
+                        $userData['phone'] === '94771234567' &&
+                        $userData['fbp'] === 'fb.1.test_fbp' &&
+                        $userData['fbc'] === 'fb.1.test_fbc' &&
+                        $userData['country'] === 'lk';
+                })
+            );
 
         $this->controller->showOtpForm($request);
 
@@ -172,7 +193,7 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp_form', $controller->renderedView);
     }
-    
+
     public function testHandleOtpFormCsrfCheckFails(): void
     {
         $request = new Request([], ['csrf_token' => 'invalid-token']);

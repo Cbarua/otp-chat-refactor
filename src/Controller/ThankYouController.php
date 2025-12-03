@@ -48,13 +48,27 @@ class ThankYouController extends BaseController
         }
 
         $regId = $this->session->get(self::SESSION_REG_ID);
-        $phoneData = $this->session->get(self::SESSION_PHONE_DATA);
+        $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $pageViewEventId = null;
         $customData = null;
 
         if ($this->capiService !== null) {
             // 2. Get user info for CAPI events
             $userInfo = $this->userInfoService->get($request);
+            $visitorId = $this->session->get('visitor_id');
+            $phoneForMatching = $phoneData['capi_format'] ?? null;
+            $fbp = $this->session->get('fbp');
+            $fbc = $this->session->get('fbc');
+            
+            $userDataArray = [
+                'ip' => $userInfo['ip'],
+                'agent' => $userInfo['useragent'],
+                'phone' => $phoneForMatching,
+                'external_id' => $visitorId,
+                'fbp' => $fbp,
+                'fbc' => $fbc,
+                'country' => 'lk' // Default to LK
+            ];
 
             $pageViewEventId = "pgview-thanks-" . uniqid();
             $this->session->set('page_view_id_thanks', $pageViewEventId);
@@ -68,12 +82,11 @@ class ThankYouController extends BaseController
                 'PageView',
                 $pageViewEventId,
                 $request->getUri(),
-                $userInfo['ip'],
-                $userInfo['useragent']
+                $userDataArray
             );
 
             // Fire "CompleteRegistration" CAPI Event
-            if (!empty($regId) && !empty($phoneData['capi_format'])) {
+            if (!empty($regId) && !empty($phoneForMatching)) {
 
                 $customData = [
                     'currency' => 'USD',
@@ -84,11 +97,9 @@ class ThankYouController extends BaseController
 
                 $this->capiService->sendEvent(
                     'CompleteRegistration',
-                    $regId, // This ID is shared with the Pixel
+                    $regId,
                     $request->getUri(),
-                    $userInfo['ip'],
-                    $userInfo['useragent'],
-                    $phoneData['capi_format'],
+                    $userDataArray,
                     $customData
                 );
             }
@@ -102,6 +113,8 @@ class ThankYouController extends BaseController
             'pageViewEventId' => $pageViewEventId,
             'regId' => $regId,
             'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'externalId' => $this->session->get('visitor_id'),
+            'country' => 'lk',
             'eventData' => ($customData !== null) ? json_encode($customData) : null
         ];
 

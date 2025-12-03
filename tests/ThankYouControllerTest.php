@@ -96,22 +96,31 @@ class ThankYouControllerTest extends TestCase
             'reg_id' => 'reg-test-12345',
             'phone_data' => ['platform' => 'ideamart', 'capi_format' => '94771234567', 'value' => 5.0],
             'otp_token' => 'otp-xyz',
-            'lead_id' => 'lead-abc'
+            'lead_id' => 'lead-abc',
+            'visitor_id' => 'v_test123',
+            'fbp' => 'fb.1.test_fbp',
+            'fbc' => 'fb.1.test_fbc'
         ];
         $request = Request::createFromGlobals();
 
         $this->capiServiceMock->expects($this->exactly(2))
             ->method('sendEvent')
-            ->willReturnCallback(function (string $eventName, string $eventId, string $url, string $ip, string $userAgent, ?string $phone, ?array $customData) {
+            ->willReturnCallback(function (string $eventName, string $eventId, string $url, array $userData, ?array $customData = null) {
                 if ($eventName === 'PageView') {
                     $this->assertStringContainsString('pgview-thanks-', $eventId);
-                    $this->assertNull($phone);
+                    $this->assertEquals('127.0.0.1', $userData['ip']);
+                    $this->assertEquals('TestAgent', $userData['agent']);
+                    $this->assertEquals('v_test123', $userData['external_id']);
+                    $this->assertEquals('fb.1.test_fbp', $userData['fbp']);
+                    $this->assertEquals('fb.1.test_fbc', $userData['fbc']);
+                    $this->assertEquals('lk', $userData['country']);
                     $this->assertNull($customData);
                 } elseif ($eventName === 'CompleteRegistration') {
                     $this->assertEquals('reg-test-12345', $eventId);
-                    $this->assertEquals('94771234567', $phone);
+                    $this->assertEquals('94771234567', $userData['phone']);
                     $this->assertEquals(['currency' => 'USD', 'value' => 5.0], $customData);
                 }
+                return [];
             });
 
         $this->controller->showThankYouPage($request);
@@ -120,6 +129,8 @@ class ThankYouControllerTest extends TestCase
         $this->assertNull($this->controller->redirectUrl);
         $this->assertEquals('reg-test-12345', $this->controller->renderData['regId']);
         $this->assertJsonStringEqualsJsonString('{"currency":"USD","value":5.0}', $this->controller->renderData['eventData']);
+        $this->assertEquals('v_test123', $this->controller->renderData['externalId']);
+        $this->assertEquals('lk', $this->controller->renderData['country']);
 
         // Assertions for session clearing
         $this->assertArrayNotHasKey('reg_id', $this->sessionData);

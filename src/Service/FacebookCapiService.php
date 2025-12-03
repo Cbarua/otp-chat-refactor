@@ -17,15 +17,15 @@ use Psr\Log\LoggerInterface;
  */
 class FacebookCapiService
 {
-    private string $pixelId;
+    private ?string $pixelId;
     private ?string $testEventCode;
     private bool $apiInitialized = false;
     private LoggerInterface $logger;
 
     public function __construct(array $config, LoggerInterface $logger)
     {
-        $this->pixelId = $config['facebook']['pixel_id'];
-        $accessToken = $config['facebook']['capi_token'];
+        $this->pixelId = $config['facebook']['pixel_id'] ?? null;
+        $accessToken = $config['facebook']['capi_token'] ?? null;
         $this->testEventCode = $config['facebook']['test_event_code'] ?? null;
         $this->logger = $logger;
 
@@ -81,40 +81,39 @@ class FacebookCapiService
     /**
      * Builds a UserData object for the SDK.
      *
-     * @param string $clientIp
-     * @param string $clientUserAgent
-     * @param string|null $phoneNormalized (e.g., 94771234567)
+     * @param array $userDataArray Data to populate UserData (ip, agent, phone, fbp, fbc, external_id, country)
      * @return UserData
      */
-    private function buildUserData(string $clientIp, string $clientUserAgent, ?string $phoneNormalized = null): UserData
+    private function buildUserData(array $userDataArray): UserData
     {
         $userData = new UserData();
 
-        if (!empty($phoneNormalized)) {
-            $userData->setPhone($this->hashIdentifier($phoneNormalized));
+        if (!empty($userDataArray['phone'])) {
+            $userData->setPhone($this->hashIdentifier($userDataArray['phone']));
         }
 
-        $userData->setClientIpAddress($clientIp);
-        $userData->setClientUserAgent($clientUserAgent);
+        if (!empty($userDataArray['ip'])) {
+            $userData->setClientIpAddress($userDataArray['ip']);
+        }
 
-        // Get fbp/fbc from cookies or session (set by controller)
-        $fbp = $_COOKIE['_fbp'] ?? $_SESSION['fbp'] ?? null;
-        // Validate format before using
-        if ($this->isValidFbCookie($fbp)) {
-            $userData->setFbp($fbp);
+        if (!empty($userDataArray['agent'])) {
+            $userData->setClientUserAgent($userDataArray['agent']);
         }
-        
-        $fbc = $_COOKIE['_fbc'] ?? $_SESSION['fbc'] ?? null;
-        // If fbc is not in cookies or session, try to generate it from the fbclid query parameter.
-        if (!$this->isValidFbCookie($fbc) && !empty($_GET['fbclid'])) { // fbclid is the Facebook Click ID
-            // Note: We strictly use 'fb.1.' here as we are creating it on domain index 1
-            $fbc = "fb.1." . round(microtime(true) * 1000) . "." . $_GET['fbclid'];
-            setcookie('_fbc', $fbc, time() + 90 * 86400, '/'); // Set for 90 days
+
+        if (!empty($userDataArray['fbp']) && $this->isValidFbCookie($userDataArray['fbp'])) {
+            $userData->setFbp($userDataArray['fbp']);
         }
-        
-        // Only set if we have a valid fbc now (either from cookie or just generated)
-        if ($this->isValidFbCookie($fbc)) {
-            $userData->setFbc($fbc);
+
+        if (!empty($userDataArray['fbc']) && $this->isValidFbCookie($userDataArray['fbc'])) {
+            $userData->setFbc($userDataArray['fbc']);
+        }
+
+        if (!empty($userDataArray['external_id'])) {
+            $userData->setExternalId($this->hashIdentifier($userDataArray['external_id']));
+        }
+
+        if (!empty($userDataArray['country'])) {
+            $userData->setCountryCode($this->hashIdentifier($userDataArray['country']));
         }
 
         return $userData;
@@ -126,9 +125,7 @@ class FacebookCapiService
      * @param string $eventName
      * @param string $eventId (For deduplication)
      * @param string $eventSourceUrl
-     * @param string $clientIp
-     * @param string $clientUserAgent
-     * @param string|null $phoneNormalized
+     * @param array $userDataArray ['ip', 'agent', 'phone', 'fbp', 'fbc', 'external_id', 'country']
      * @param array|null $customData (e.g., ['value' => 0.01, 'currency' => 'USD'])
      * @return array|null
      */
@@ -136,9 +133,7 @@ class FacebookCapiService
         string $eventName,
         string $eventId,
         string $eventSourceUrl,
-        string $clientIp,
-        string $clientUserAgent,
-        ?string $phoneNormalized = null,
+        array $userDataArray,
         ?array $customData = null
     ): ?array {
         if (!$this->apiInitialized) {
@@ -146,7 +141,7 @@ class FacebookCapiService
             return null;
         }
 
-        $userData = $this->buildUserData($clientIp, $clientUserAgent, $phoneNormalized);
+        $userData = $this->buildUserData($userDataArray);
 
         $event = new Event();
         $event->setEventName($eventName);
@@ -178,13 +173,14 @@ class FacebookCapiService
         try {
             $response = $eventRequest->execute();
             $decoded = json_decode($response, true);
-            
+
             // Log CAPI response
             $this->logger->info("CAPI Event Sent", [
                 'event_name' => $eventName,
                 'event_id' => $eventId,
                 'url' => $eventSourceUrl,
-                'user_data' => json_encode($userData->normalize()),
+                // 'user_data' => $userDataArray, // Log the raw array for debugging
+                'user_data' => json_encode($userData->normalize()), // Log the normalized array for debugging and accuracy
                 'response' => $decoded
             ]);
             return $decoded;

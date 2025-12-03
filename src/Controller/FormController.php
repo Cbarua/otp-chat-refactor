@@ -91,6 +91,8 @@ class FormController extends BaseController
             'errorMessage' => $this->session->get(self::SESSION_ERROR),
             'alreadyRegistered' => $this->session->get(self::SESSION_ALREADY_REGISTERED),
             'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'externalId' => $this->session->get(self::SESSION_VISITOR_ID),
+            'country' => 'lk',
             'csrfToken' => $this->csrfService->getToken(),
         ];
 
@@ -189,8 +191,30 @@ class FormController extends BaseController
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $phoneForMatching = $phoneData['capi_format'] ?? null;
         $userInfo = $this->userInfoService->get($request);
+        $visitorId = $this->session->get(self::SESSION_VISITOR_ID);
 
-        $this->logger->info('New PageView triggered for CAPI. /', [
+        // Handle fbc generation if missing
+        $fbc = $request->cookies->get('_fbc') ?? $this->session->get(self::SESSION_FBC);
+        if (empty($fbc) && $request->query->has('fbclid')) {
+            $fbc = "fb.1." . round(microtime(true) * 1000) . "." . $request->query->get('fbclid');
+            // We can't easily set a cookie here without returning a response, so we store in session
+            // and rely on client-side JS (fbevents.js) or subsequent requests to handle it if needed.
+            // For CAPI, passing it in the payload is enough.
+            $this->session->set(self::SESSION_FBC, $fbc);
+        }
+        $fbp = $request->cookies->get('_fbp') ?? $this->session->get(self::SESSION_FBP);
+
+        $userDataArray = [
+            'ip' => $userInfo['ip'],
+            'agent' => $userInfo['useragent'],
+            'phone' => $phoneForMatching,
+            'fbp' => $fbp,
+            'fbc' => $fbc,
+            'external_id' => $visitorId,
+            'country' => 'lk' // Defaulting to LK as per current scope
+        ];
+
+        $this->logger->info('New PageView triggered. /', [
             'page_view_id' => $pageViewEventId,
             'has_phone_for_matching' => !is_null($phoneForMatching)
         ]);
@@ -199,9 +223,7 @@ class FormController extends BaseController
             'PageView',
             $pageViewEventId,
             $request->getUri(),
-            $userInfo['ip'],
-            $userInfo['useragent'],
-            $phoneForMatching
+            $userDataArray
         );
     }
 

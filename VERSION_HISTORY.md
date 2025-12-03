@@ -1,5 +1,25 @@
 # Version History
 
+## 7. Facebook CAPI & Browser Pixel Advanced Matching
+**Author:** Chinmoy Barua
+**Date:** 2025-12-03
+**Summary:**
+Implemented Advanced Matching for both Facebook CAPI and Browser Pixel to improve event match quality. Optimized frontend forms for better user experience and conversion. Refactored `FacebookCapiService` for robustness and flexibility.
+
+**Key Changes:**
+- **Facebook CAPI & Pixel:**
+  - Updated `FacebookCapiService` to support `external_id` and `country`.
+  - Updated Controllers (`FormController`, `OtpController`, `ThankYouController`) to pass user data to CAPI and views.
+  - Implemented Advanced Matching in Browser Pixel (`fbq('init')`) using `external_id` and `country`.
+- **Frontend Optimization:**
+  - Added `autocomplete="tel"` to phone input.
+  - Added `autocomplete="one-time-code"`, `inputmode="numeric"`, and `pattern="\d*"` to OTP input (WebOTP support).
+- **Testing:**
+  - Updated Unit Tests to verify data passing and CAPI service logic.
+  - Updated Acceptance Tests to verify Pixel initialization and event firing.
+
+---
+
 ## 6. Mock API Enhancements & OtpController Rate Limit Fallback And Refactoring
 **Author:** Chinmoy Barua
 **Date:** 2025-12-02

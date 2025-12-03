@@ -149,7 +149,7 @@ if ($session->has('visitor_id')) {
 } else {
     // Priority 3: This is a brand new user.
     try {
-        $visitorId = bin2hex(random_bytes(16));
+        $visitorId = 'v_' . bin2hex(random_bytes(16));
     } catch (\Exception $e) {
         // Fallback if random_bytes fails (unlikely)
         $visitorId = uniqid('v_', true);

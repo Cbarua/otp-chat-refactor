@@ -5,25 +5,25 @@
 ?>
 
 <?php if ($pixelId): ?>
-<script>
-    <?php if (!empty($phoneCapi)): ?>
-        // Re-init pixel with phone hash for Advanced Matching
+    <script>
+        // Re-init pixel with Advanced Matching
         fbq('init', '<?php echo htmlspecialchars($pixelId, ENT_QUOTES, 'UTF-8'); ?>', {
-            ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'
+            external_id: '<?php echo htmlspecialchars($externalId, ENT_QUOTES, 'UTF-8'); ?>',
+            country: '<?php echo htmlspecialchars($country, ENT_QUOTES, 'UTF-8'); ?>'
+                <?php if (!empty($phoneCapi)): ?>, ph: '<?php echo htmlspecialchars($phoneCapi, ENT_QUOTES, 'UTF-8'); ?>'<?php endif; ?>
         });
-    <?php endif; ?>
 
-    <?php
-    // ONLY fire the PageView Pixel event if it's NOT an error redirect.
-    // The CAPI event was already skipped in the controller.
-    if (!empty($pageViewEventId)):
-        ?>
-        fbq('track', 'PageView',
-            {}, // Custom data (optional)
-            { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
-        );
-    <?php endif; ?>
-</script>
+        <?php
+        // ONLY fire the PageView Pixel event if it's NOT an error redirect.
+        // The CAPI event was already skipped in the controller.
+        if (!empty($pageViewEventId)):
+            ?>
+            fbq('track', 'PageView',
+                {}, // Custom data (optional)
+                { eventID: '<?php echo htmlspecialchars($pageViewEventId, ENT_QUOTES, 'UTF-8'); ?>' }
+            );
+        <?php endif; ?>
+    </script>
 <?php endif; ?>
 
 <section class="img-section">
@@ -52,7 +52,7 @@
         <input type="hidden" id="fbc" name="fbc" value="">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
 
-        <input type="tel" id="mobile" name="mobile" placeholder="0700000000" maxlength="10" minlength="9" required>
+        <input type="tel" id="mobile" name="mobile" placeholder="0700000000" maxlength="10" minlength="9" required autocomplete="tel">
         <input type="submit" value="Register">
 
     </form>
