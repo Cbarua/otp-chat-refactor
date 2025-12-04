@@ -69,6 +69,21 @@ Handles scenarios where verification fails due to system errors, network issues,
         -   Sets a specific error message (`ERROR_RATE_LIMIT` if triggered by rate limiting, otherwise `ERROR_GENERIC`).
         -   Redirects to the OTP page.
 
+### 6. SMS Fallback Mechanism
+
+Handles scenarios where users repeatedly fail to enter the correct OTP. This provides an alternative way for users to register via SMS.
+
+-   **Trigger Condition**:
+    -   If the user enters an invalid OTP 3 times.
+    -   If the API returns "OTP Not Found".
+-   **Behavior**:
+    -   Increments `SESSION_INVALID_OTP_COUNT` on each failure.
+    -   When the threshold (3) is reached, sets `SESSION_SHOW_SMS_LINK` to true.
+    -   The view renders an SMS link (using `smsNumber` and `smsKeyword` from config) instead of the OTP input field.
+    -   The user is instructed to send an SMS to complete registration.
+-   **Reset**:
+    -   The invalid OTP count and SMS link flag are cleared upon successful verification or when a new OTP is requested (e.g., via rate limit fallback).
+
 ## User Scenarios
 
 | Scenario | User Action | System Behavior | Outcome |
@@ -80,6 +95,7 @@ Handles scenarios where verification fails due to system errors, network issues,
 | **System Error** | API returns 500/Error. | Verifies OTP -> Returns Error -> Triggers Fallback. | Tries to get NEW OTP from *different* URL. |
 | **Fallback Success** | Fallback triggered. | `OtpApiService` finds working URL. | Clears rate limit, updates session, shows "New OTP sent". |
 | **Fallback Failure** | Fallback triggered. | All URLs fail. | Shows "Too many attempts" or "An error occurred". |
+| **SMS Fallback** | User fails OTP 3 times. | Increments count -> Threshold reached. | Shows SMS link instead of OTP input. |
 | **Session Expiry** | User waits too long. | Session token expires. | Redirects to Home Page (`./`). |
 | **CSRF Attack** | Malicious form submit. | CSRF token validation fails. | Redirects to `/otp` with "Security check failed". |
 

@@ -16,6 +16,15 @@
 
         <?php if (isset($errorMessage)): ?>
             <div class="alert alert-danger"><?php echo htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8'); ?></div>
+            <?php if (!empty($config['google']['ga_measurement_id'])): ?>
+            <script>
+                gtag('event', 'form_error', {
+                    'event_category': 'form',
+                    'event_label': 'phone_form_error',
+                    'message': '<?php echo htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8'); ?>'
+                });
+            </script>
+            <?php endif; ?>
         <?php endif; ?>
 
         <?php if (isset($alreadyRegistered)): ?>
@@ -51,6 +60,15 @@
             e.preventDefault(); // stop submission
             errorDiv.style.display = "block";
             phoneInput.focus();
+            
+            <?php if (!empty($config['google']['ga_measurement_id'])): ?>
+            gtag('event', 'form_error', {
+                'event_category': 'form',
+                'event_label': 'client_side_phone_error',
+                'message': 'Invalid phone format'
+            });
+            <?php endif; ?>
+
             return false;
         }
 
@@ -68,6 +86,14 @@
 
         // If valid → hide error, allow submit
         errorDiv.style.display = "none";
+
+        <?php if (!empty($config['google']['ga_measurement_id'])): ?>
+        gtag('event', 'begin_registration', {
+            'event_category': 'engagement',
+            'event_label': 'phone_submitted'
+        });
+        <?php endif; ?>
+
         return true;
     });
 </script>

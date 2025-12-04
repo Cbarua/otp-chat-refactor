@@ -72,7 +72,7 @@
             gtag('config', '<?php echo htmlspecialchars($gaMeasurementId, ENT_QUOTES, 'UTF-8'); ?>');
         </script>
     <?php endif; ?>
-    <title>Welcome</title>
+    <title><?php echo htmlspecialchars($title, ENT_QUOTES, 'UTF-8'); ?></title>
 </head>
 <body>
     <div class="box-container">

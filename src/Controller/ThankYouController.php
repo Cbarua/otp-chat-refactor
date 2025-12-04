@@ -108,6 +108,7 @@ class ThankYouController extends BaseController
         // 5. Prepare data for the view
         $data = [
             'config' => $this->config,
+            'title' => 'Thank You',
             'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'pageViewEventId' => $pageViewEventId,

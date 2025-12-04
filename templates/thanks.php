@@ -4,18 +4,23 @@
 // This template has access to $config, $regId, $phoneCapi, $eventData, etc.
 ?>
 
-<?php if (!empty($pixelId)): ?>
+<?php if (!empty($pixelId) && !empty($regId)): ?>
 <script>
-    <?php if (!empty($regId)): ?>
-        // Fire the CompleteRegistration event, sharing eventID with CAPI
-        fbq('track', 'CompleteRegistration', 
-            <?php echo $eventData; // JSON data, e.g., {'currency': 'USD', 'value': 0.02} ?>,
-            { eventID: '<?php echo htmlspecialchars($regId, ENT_QUOTES, 'UTF-8'); ?>' }
-        );
-    <?php endif; ?>
+    fbq('track', 'CompleteRegistration',
+        <?php echo $eventData; ?>,
+        { eventID: '<?php echo htmlspecialchars($regId, ENT_QUOTES, 'UTF-8'); ?>' }
+    );
 </script>
 <?php endif; ?>
 
+<?php if (!empty($config['google']['ga_measurement_id'])): ?>
+<script>
+    gtag('event', 'generate_lead', {
+        'event_category': 'conversion',
+        'event_label': 'registration_complete'
+    });
+</script>
+<?php endif; ?>
 
 <section class="img-section">
     <div class="img-container">

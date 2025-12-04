@@ -1,5 +1,32 @@
 # Version History
 
+## 9. SMS Fallback Logic & Google Analytics Optimization
+**Author:** Chinmoy Barua
+**Date:** 2025-12-04
+**Summary:**
+Implemented an SMS fallback mechanism for users who repeatedly enter invalid OTPs to enhance user experience. Additionally, optimized Google Analytics implementation by adding standard events for key user interactions and errors. 
+
+**Key Changes:**
+- **SMS Fallback:**
+  - Updated `OtpController` to track invalid OTP attempts in the session.
+  - Implemented logic to display an SMS registration link after 3 failed attempts or if the OTP is not found.
+  - Implemented logic to reset invalid OTP attempts in the session after a successful OTP verification or a new OTP sent via fallback url.
+  - SMS registration link is cleared when navigated to the phone form.
+  - Backward compatible with previous OTP rate limit fallback logic. Only show SMS link if sms `number` and `keyword` are set in the environment variables.
+  - Updated `otp_form.php` to conditionally render the SMS link.
+- **Google Analytics:**
+  - Added `begin_registration` event on phone form submission.
+  - Added `form_error` event for both client-side and server-side validation errors.
+  - Added `submit_otp` event on OTP form submission.
+  - Added `sms_link_click` event on SMS link click.
+  - Added `generate_lead` event on successful registration.
+- **Testing:**
+  - Updated `RegistrationFlowCest.php` to verify the presence of new GA events and test the SMS fallback flow.
+  - Added unit tests to `OtpControllerTest.php` covering invalid OTP counting, SMS link display, and session reset logic.
+  - Added unit tests to `FormControllerTest.php` covering SMS link display and session reset logic.
+
+---
+
 ## 8. Google Analytics 4 Implementation & Minor refactoring of browser pixel
 **Author:** Chinmoy Barua
 **Date:** 2025-12-03

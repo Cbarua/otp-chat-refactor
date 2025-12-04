@@ -27,6 +27,8 @@ class FormController extends BaseController
     public const SESSION_FBC = 'fbc';
     public const SESSION_LEAD_ID = 'lead_id';
     public const SESSION_OTP_TOKEN = 'otp_token';
+    public const SESSION_INVALID_OTP_COUNT = 'invalid_otp_count';
+    public const SESSION_SHOW_SMS_LINK = 'show_sms_link';
 
     // API Statuses
     private const API_STATUS_ALREADY_REGISTERED = 'user already registered';
@@ -85,6 +87,7 @@ class FormController extends BaseController
         // Prepare data for the view
         $data = [
             'config' => $this->config,
+            'title' => 'Welcome',
             'pageViewEventId' => $this->session->get(self::SESSION_PAGE_VIEW_ID),
             'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
@@ -100,6 +103,13 @@ class FormController extends BaseController
         // Clear session data after displaying it
         $this->session->unset(self::SESSION_ERROR);
         $this->session->unset(self::SESSION_ALREADY_REGISTERED);
+
+        // Redirect from OTP page if SMS link flag is set
+        // Clear invalid OTP count and SMS link flag if exists
+        if ($this->session->has(self::SESSION_SHOW_SMS_LINK) || $this->session->has(self::SESSION_INVALID_OTP_COUNT)) {
+            $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
+            $this->session->unset(self::SESSION_SHOW_SMS_LINK);
+        }
 
         return $this->render('phone_form', $data);
     }

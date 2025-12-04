@@ -23,17 +23,20 @@ class OtpController extends BaseController
     public const SESSION_PAGE_VIEW_ID = 'page_view_id_otp';
     public const SESSION_REG_ID = 'reg_id';
     public const SESSION_LEAD_ID = 'lead_id';
+    public const SESSION_INVALID_OTP_COUNT = 'invalid_otp_count';
+    public const SESSION_SHOW_SMS_LINK = 'show_sms_link';
 
     // API Statuses
     public const OTP_SUCCESS = 'success';
     public const OTP_INVALID = 'Invalid OTP';
+    public const OTP_NOT_FOUND = 'Could not find OTP';
     public const SUB_STATUS_PENDING = 'INITIAL CHARGING PENDING';
     public const SUB_STATUS_REGISTERED = 'REGISTERED';
 
     // Error Messages
     private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
     private const ERROR_CSRF = 'Security check failed. Please try again.';
-    private const ERROR_INVALID_OTP = 'Invalid OTP. Must be 6 digits.';
+    private const ERROR_OTP_INVALID_LENGTH = 'Invalid OTP. Must be 6 digits.';
     private const ERROR_OTP_INVALID = 'Invalid OTP. Please enter the correct OTP.';
     private const ERROR_OTP_NEW = 'Please try again with the new OTP sent to your phone.';
     private const ERROR_GENERIC = 'An error occurred. Please try again later.';
@@ -90,9 +93,17 @@ class OtpController extends BaseController
 
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
 
+        $smsNumber = $this->config['sms']['number'] ?? null;
+        $smsKeyword = $this->config['sms']['keyword'] ?? null;
+
+        // It makes sure that the sms link is only shown if the sms number and keyword are set
+        // Backwards compatibility
+        $showSmsLink = ($smsNumber && $smsKeyword) ? $this->session->get(self::SESSION_SHOW_SMS_LINK, false) : false;
+
         // Prepare data for the view
         $data = [
             'config' => $this->config,
+            'title' => 'OTP Form',
             'leadEventId' => $this->session->get(self::SESSION_LEAD_ID),
             'pageViewEventId' => $this->session->get(self::SESSION_PAGE_VIEW_ID),
             'phoneCapi' => $phoneData['capi_format'] ?? null,
@@ -103,6 +114,9 @@ class OtpController extends BaseController
             'errorMessage' => $this->session->get(self::SESSION_ERROR),
             'csrfToken' => $this->csrfService->getToken(),
             'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
+            'showSmsLink' => $showSmsLink,
+            'smsNumber' => $smsNumber,
+            'smsKeyword' => $smsKeyword,
         ];
 
         $this->session->unset(self::SESSION_ERROR);
@@ -156,8 +170,8 @@ class OtpController extends BaseController
         $this->logger->info('OTP form submitted', ['raw_otp' => $rawOtp, 'ref_no' => $token['referenceNo'] ?? 'N/A']);
 
         if (!Validator::validateOtp($rawOtp)) {
-            $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_OTP);
-            $this->logger->warning(self::ERROR_INVALID_OTP, ['otp' => $rawOtp]);
+            $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID_LENGTH);
+            $this->logger->warning(self::ERROR_OTP_INVALID_LENGTH, ['otp' => $rawOtp]);
             return $this->redirect('otp');
         }
 
@@ -259,6 +273,29 @@ class OtpController extends BaseController
             return $this->handleSuccessfulVerification($response, $platform);
         }
 
+        // If SMS config is set, show sms link
+        // Backward compatibility
+        if (!empty($this->config['sms']['number']) && !empty($this->config['sms']['keyword'])) {
+            if (($response['status'] ?? null) === self::OTP_INVALID) {
+                // Increment invalid OTP count
+                $count = $this->session->get(self::SESSION_INVALID_OTP_COUNT, 0) + 1;
+                $this->session->set(self::SESSION_INVALID_OTP_COUNT, $count);
+
+                if ($count >= 3) {
+                    $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+                } else {
+                    $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
+                }
+
+                return $this->redirect('otp');
+            }
+
+            if (($response['status'] ?? null) === self::OTP_NOT_FOUND) {
+                $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+                return $this->redirect('otp');
+            }
+        }
+
         if (($response['status'] ?? null) === self::OTP_INVALID) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
             return $this->redirect('otp');
@@ -288,6 +325,9 @@ class OtpController extends BaseController
         if ($isSubscribed || $platform === self::PLATFORM_MSPACE) {
             $regId = $this->generateRandomId('reg-');
             $this->session->set(self::SESSION_REG_ID, $regId);
+            // Clear invalid OTP count and SMS link flag
+            $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
+            $this->session->unset(self::SESSION_SHOW_SMS_LINK);
             return $this->redirect('thanks');
         } else {
             $this->session->set(self::SESSION_ERROR, 'Registration failed. Please try again.');
@@ -350,6 +390,10 @@ class OtpController extends BaseController
 
         $this->session->set(self::SESSION_OTP_TOKEN, $newToken);
         $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_NEW);
+
+        // Reset invalid OTP count on new OTP
+        $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
+        $this->session->unset(self::SESSION_SHOW_SMS_LINK);
 
         return $this->redirect('otp');
     }

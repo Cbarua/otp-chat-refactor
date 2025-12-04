@@ -10,6 +10,7 @@
     --success-bg: #d4edda;
     --success-border: #c3e6cb;
     --success-text: #155724;
+    --info-color: #1161e2;
     --danger-bg: #f8d7da;
     --danger-border: #f5c6cb;
     --danger-text: #721c24;
@@ -85,6 +86,30 @@ body {
     font-family: 'Noto Sans Sinhala', sans-serif;
 }
 
+#smsLink {
+    display: inline-block;
+    width: 20rem;
+    height: 4rem;
+    line-height: 4rem;
+    background: var(--info-color);
+    color: var(--white);
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    text-align: center;
+    border-radius: 2.5rem;
+    text-decoration: none;
+    letter-spacing: 1.5px;
+    transition: all 0.3s ease;
+    margin-top: 1rem;
+}
+
+#smsLink:hover,
+#smsLink:focus {
+    background: #0050d0;
+    text-decoration: none;
+}
+
 .box-container input {
     outline: none;
     border: 2px solid transparent;
@@ -125,7 +150,7 @@ body {
 .box-container a {
     cursor: pointer;
     text-decoration: none;
-    color: var(--success-color);
+    color: var(--info-color);
 }
 
 .box-container a:hover,

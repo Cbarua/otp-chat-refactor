@@ -236,6 +236,19 @@ class FormControllerTest extends TestCase
         $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
     }
 
+    public function testShowPhoneFormClearsSmsFallbackSession(): void
+    {
+        $request = Request::createFromGlobals();
+        $this->sessionData[FormController::SESSION_SHOW_SMS_LINK] = true;
+
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
+
+        $this->controller->showPhoneForm($request);
+
+        $this->assertArrayNotHasKey(FormController::SESSION_SHOW_SMS_LINK, $this->sessionData);
+        $this->assertArrayNotHasKey(FormController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
+    }
+
     public function testHandlePhoneFormInvalidNumber(): void
     {
         $request = new Request([], ['mobile' => '12345', 'csrf_token' => 'valid-token']);

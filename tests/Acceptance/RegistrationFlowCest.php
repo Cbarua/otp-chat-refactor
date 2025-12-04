@@ -113,6 +113,10 @@ final class RegistrationFlowCest
 
         // 1. On the home page
         $I->amOnPage('/');
+
+        // Set cookie to disable SMS fallback
+        $I->setCookie('DISABLE_SMS_FALLBACK', 'true');
+
         $I->fillField('mobile', self::MAGIC_PHONE);
         $I->click('Register');
         $I->wait(5); // Wait for API
@@ -215,6 +219,35 @@ final class RegistrationFlowCest
         $I->click('Verify');
         $I->wait(3);
         $I->seeInCurrentUrl('/thanks');
+    }
+
+    public function testSmsFallbackAfterThreeInvalidAttempts(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test SMS Fallback after 3 invalid attempts');
+
+        // 1. On the home page
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+        $I->wait(3); // Wait for API
+
+        // 2. On OTP page
+        $I->seeInCurrentUrl('/otp');
+
+        // 3. Submit invalid OTP 3 times
+        for ($i = 1; $i <= 3; $i++) {
+            $I->fillField('otp', '11111' . $i);
+            $I->click('Verify');
+            $I->wait(1);
+            $I->seeInCurrentUrl('/otp');
+        }
+
+        // 4. Should see SMS link
+        $I->seeElement('#smsLink');
+        $I->see('PIN අංකය නැද්ද? පහල බොත්තම ඔබලා සෙන්ඩ් කරන්න');
+
+        // 5. Should NOT see OTP input
+        $I->dontSeeElement('input[name="otp"]');
     }
 
     // --- JavaScript Validation Tests ---
@@ -421,13 +454,20 @@ final class RegistrationFlowCest
         $I->amOnPage('/');
 
         $gaMeasurementId = $this->config['google']['ga_measurement_id'] ?? null;
-        
+
         if (empty($gaMeasurementId)) {
             $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
         } else {
             $I->seeInSource("gtag('config', '$gaMeasurementId');");
-        }
 
+            // Test begin_registration event code presence
+            $I->seeInSource("gtag('event', 'begin_registration'");
+            $I->seeInSource("'event_label': 'phone_submitted'");
+
+            // Test form_error event code presence
+            $I->seeInSource("gtag('event', 'form_error'");
+            $I->seeInSource("'event_label': 'client_side_phone_error'");
+        }
     }
 
     public function testGoogleAnalyticsOnOtpForm(AcceptanceTester $I)
@@ -444,13 +484,45 @@ final class RegistrationFlowCest
         $I->seeInCurrentUrl('/otp');
 
         $gaMeasurementId = $this->config['google']['ga_measurement_id'] ?? null;
-        
+
         if (empty($gaMeasurementId)) {
             $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
         } else {
             $I->seeInSource("gtag('config', '$gaMeasurementId');");
+
+            // Test submit_otp event on form submission
+            $I->seeInSource("onsubmit=\"gtag('event', 'submit_otp'");
+            $I->seeInSource("'event_label': 'otp_submitted'");
+        }
+    }
+
+    public function testGoogleAnalyticsOnSmsLinkClick(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test Google Analytics event on SMS link click');
+
+        // 1. On the home page
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+        $I->wait(3); // Wait for API
+
+        // 2. On OTP page
+        $I->seeInCurrentUrl('/otp');
+
+        // 3. Submit invalid OTP 3 times to show SMS link
+        for ($i = 1; $i <= 3; $i++) {
+            $I->fillField('otp', '11111' . $i);
+            $I->click('Verify');
+            $I->wait(1);
         }
 
+        // 4. Verify SMS link is present
+        $I->seeElement('#smsLink');
+
+        // 5. Verify GA event tracking code is present in the onclick attribute
+        $I->seeInSource("gtag('event', 'sms_link_click'");
+        $I->seeInSource("'event_category': 'engagement'");
+        $I->seeInSource("'event_label': 'sms_fallback_link'");
     }
 
     public function testGoogleAnalyticsOnThanksPage(AcceptanceTester $I)
@@ -478,8 +550,11 @@ final class RegistrationFlowCest
             $I->dontSeeInSource("gtag('config', '$gaMeasurementId');");
         } else {
             $I->seeInSource("gtag('config', '$gaMeasurementId');");
-        }
 
+            // Test generate_lead event
+            $I->seeInSource("gtag('event', 'generate_lead'");
+            $I->seeInSource("'event_label': 'registration_complete'");
+        }
     }
 
     public function testRateLimiting(AcceptanceTester $I)

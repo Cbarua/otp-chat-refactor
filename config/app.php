@@ -49,6 +49,9 @@ $safeJsonDecode = function ($key) {
     return $decoded ?? [];
 };
 
+// Get cookie value
+$disableSmsFallback = isset($_COOKIE['DISABLE_SMS_FALLBACK']) && $_COOKIE['DISABLE_SMS_FALLBACK'] === 'true';
+
 // 4. Return Configuration Array
 return [
     'env' => $_ENV['APP_ENV'] ?? 'development',
@@ -67,6 +70,11 @@ return [
         'ideamart' => $safeJsonDecode('IDEAMART_URLS'),
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
+    ],
+
+    'sms' => [
+        'number' => $disableSmsFallback ? null : $_ENV['SMS_NUMBER'] ?? null,
+        'keyword' => $disableSmsFallback ? null : $_ENV['SMS_KEYWORD'] ?? null,
     ],
 
     'facebook' => [
