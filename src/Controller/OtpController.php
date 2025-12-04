@@ -100,6 +100,13 @@ class OtpController extends BaseController
         // Backwards compatibility
         $showSmsLink = ($smsNumber && $smsKeyword) ? $this->session->get(self::SESSION_SHOW_SMS_LINK, false) : false;
 
+        if ($showSmsLink) {
+            $this->logger->info('SMS link shown', [
+                'number' => $smsNumber,
+                'keyword' => $smsKeyword,
+            ]);
+        }
+
         // Prepare data for the view
         $data = [
             'config' => $this->config,
