@@ -72,4 +72,16 @@
         <?php endif; ?>
         <span>නැවත PIN අංකය ඉල්ලීමට <a href="/">මෙතන ඔබන්න.</a></span>
     </form>
+    <script>
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const submitBtn = this.querySelector('input[type="submit"]');
+            if (submitBtn) {
+                // Short delay to allow the form submission payload to be constructed
+                setTimeout(() => {
+                    submitBtn.disabled = true;
+                    submitBtn.value = "Verifying...";
+                }, 0);
+            }
+        });
+    </script>
 </section>

@@ -34,7 +34,7 @@ use App\Service\RateLimiterService;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
-use Monolog\Formatter\JsonFormatter;
+use App\Utils\OrderedJsonFormatter;
 use GuzzleHttp\Client;
 
 // 1. Start Session
@@ -88,7 +88,7 @@ $container['GuzzleClient'] = function ($c) {
 // App Logger (JSON, Rotating)
 $container['Logger'] = function ($c) {
     $handler = new RotatingFileHandler($c['config']['log_path']['app_dir'] . '/app.log', 10, Level::Debug);
-    $handler->setFormatter(new JsonFormatter());
+    $handler->setFormatter(new OrderedJsonFormatter());
 
     $log = new Logger('app');
     $log->pushHandler($handler);
@@ -100,7 +100,7 @@ $container['Logger'] = function ($c) {
 // CAPI Logger (JSON, Rotating)
 $container['CapiLogger'] = function ($c) {
     $handler = new RotatingFileHandler($c['config']['log_path']['capi_dir'] . '/capi.log', 10, Level::Debug);
-    $handler->setFormatter(new JsonFormatter());
+    $handler->setFormatter(new OrderedJsonFormatter());
 
     $log = new Logger('capi');
     $log->pushHandler($handler);

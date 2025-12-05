@@ -87,6 +87,15 @@
         // If valid → hide error, allow submit
         errorDiv.style.display = "none";
 
+        // Prevent double submission
+        const submitBtn = document.querySelector('input[type="submit"]');
+        if (submitBtn) {
+            setTimeout(() => {
+                submitBtn.disabled = true;
+                submitBtn.value = "Please wait...";
+            }, 0);
+        }
+
         <?php if (!empty($config['google']['ga_measurement_id'])): ?>
         gtag('event', 'begin_registration', {
             'event_category': 'engagement',
