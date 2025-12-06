@@ -32,6 +32,7 @@ class FormController extends BaseController
 
     // API Statuses
     private const API_STATUS_ALREADY_REGISTERED = 'user already registered';
+    private const API_ERROR_TEMPORARY_FAILURE = 'Temporary System Error';
     private const ALREADY_REGISTERED = 'You are already registered!';
 
     // Error Messages
@@ -268,6 +269,36 @@ class FormController extends BaseController
             $this->session->set(self::SESSION_ALREADY_REGISTERED, self::ALREADY_REGISTERED);
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
             $this->logger->info('User already registered on all available services for this platform.');
+        } elseif (($response['status'] ?? null) === self::API_ERROR_TEMPORARY_FAILURE) {
+            $smsNumber = $this->config['sms']['number'] ?? null;
+            $smsKeyword = $this->config['sms']['keyword'] ?? null;
+            
+            if (!($smsNumber && $smsKeyword)) {
+                $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+                $this->logger->error('Temporary system error encountered', [
+                    'platform' => $phoneData['platform'],
+                    'base_url' => $response['base_url'] ?? null,
+                    'message' => $response['message'] ?? null,
+                    'original_response' => $response['originalResponse'] ?? null
+                ]);
+                return $this->redirect('./');
+            }
+
+            try {
+                $leadId = "lead-" . bin2hex(random_bytes(16));
+            } catch (\Exception $e) {
+                $leadId = "lead-" . uniqid();
+            }
+
+            $this->session->set(self::SESSION_LEAD_ID, $leadId);
+            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
+            $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+            $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
+            $this->logger->info('Temporary system error encountered, showing SMS fallback link.', [
+                'platform' => $phoneData['platform'],
+                'final_response' => $response
+            ]);
+            return $this->redirect('otp');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
             $this->logger->error('All OTP request attempts failed for the user.', [

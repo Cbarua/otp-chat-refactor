@@ -78,6 +78,13 @@ class OtpApiService implements OtpApiInterface
                     ],
                     'originalResponse' => $response
                 ];
+            } elseif (strpos($lastResponse['statusDetail'] ?? null, 'Temporary System Error') !== false) {
+                return [
+                    'status' => 'Temporary System Error',
+                    'message' => $lastResponse['statusDetail'] ?? 'Temporary system error encountered.',
+                    'base_url' => $baseUrl,
+                    'originalResponse' => $lastResponse
+                ];
             }
 
             $this->logger->warning('OTP request to URL failed, trying next if available.', [
