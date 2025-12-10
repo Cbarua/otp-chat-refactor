@@ -59,9 +59,12 @@ class ThankYouController extends BaseController
             $phoneForMatching = $phoneData['capi_format'] ?? null;
             $fbp = $this->session->get('fbp');
             $fbc = $this->session->get('fbc');
-            
+
+            $capiParams = $this->capiService->processRequest($request);
+            $clientIpAddress = $capiParams['client_ip_address'] ?? null;
+
             $userDataArray = [
-                'ip' => $userInfo['ip'],
+                'ip' => $clientIpAddress ?? $userInfo['ip'],
                 'agent' => $userInfo['useragent'],
                 'phone' => $phoneForMatching,
                 'external_id' => $visitorId,

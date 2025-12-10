@@ -4,8 +4,42 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "855828904e98ca95aac108e23ce99786",
+    "content-hash": "bbd487758c2e3ebee26b2ce5d8c42dfe",
     "packages": [
+        {
+            "name": "facebook/capi-param-builder-php",
+            "version": "1.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/facebook/capi-param-builder.git",
+                "reference": "3839636d4ef5f582e24c20aba5ae70f6ad9ca13a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/facebook/capi-param-builder/zipball/3839636d4ef5f582e24c20aba5ae70f6ad9ca13a",
+                "reference": "3839636d4ef5f582e24c20aba5ae70f6ad9ca13a",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.4"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^8.5"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "FacebookAds\\": "php/capi-param-builder/src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "description": "Parameter builder SDK for Conversion API events",
+            "support": {
+                "issues": "https://github.com/facebook/capi-param-builder/issues",
+                "source": "https://github.com/facebook/capi-param-builder/tree/v1.2.0"
+            },
+            "time": "2025-10-31T17:58:28+00:00"
+        },
         {
             "name": "facebook/php-business-sdk",
             "version": "23.0.3",

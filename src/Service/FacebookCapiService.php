@@ -11,6 +11,8 @@ use FacebookAds\Object\ServerSide\EventRequest;
 use FacebookAds\Object\ServerSide\UserData;
 use Exception;
 use Psr\Log\LoggerInterface;
+use FacebookAds\ParamBuilder;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Manages all communication with the Facebook Conversions API (CAPI).
@@ -193,5 +195,40 @@ class FacebookCapiService
             ]);
             return null;
         }
+    }
+
+
+    /**
+     * Processes the incoming request to extract CAPI parameters using the ParamBuilder library.
+     *
+     * @param Request $request
+     * @return array
+     */
+    public function processRequest(Request $request): array
+    {
+        $host = $request->getHost();
+        // ParamBuilder expects a list of domains to match against.
+        // We use the current host.
+        $domains = [$host];
+
+        $paramBuilder = new ParamBuilder($domains);
+
+        // processRequest expects:
+        // (string $host, array $query_params, array $cookies, ?string $referer, ?string $x_forwarded_for, ?string $remote_address)
+        $paramBuilder->processRequest(
+            $host,
+            $request->query->all(),
+            $request->cookies->all(),
+            $request->headers->get('referer'),
+            $request->headers->get('x-forwarded-for'),
+            $request->server->get('REMOTE_ADDR')
+        );
+
+        return [
+            'fbc' => $paramBuilder->getFbc(),
+            'fbp' => $paramBuilder->getFbp(),
+            // We can also retrieve improved client_ip_address if needed
+            'client_ip_address' => $paramBuilder->getClientIpAddress()
+        ];
     }
 }

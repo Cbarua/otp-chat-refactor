@@ -205,19 +205,26 @@ class FormController extends BaseController
         $userInfo = $this->userInfoService->get($request);
         $visitorId = $this->session->get(self::SESSION_VISITOR_ID);
 
-        // Handle fbc generation if missing
-        $fbc = $request->cookies->get('_fbc') ?? $this->session->get(self::SESSION_FBC);
-        if (empty($fbc) && $request->query->has('fbclid')) {
-            $fbc = "fb.1." . round(microtime(true) * 1000) . "." . $request->query->get('fbclid');
-            // We can't easily set a cookie here without returning a response, so we store in session
-            // and rely on client-side JS (fbevents.js) or subsequent requests to handle it if needed.
-            // For CAPI, passing it in the payload is enough.
+        // processRequest returns array ['fbc' => ..., 'fbp' => ...]
+        $capiParams = $this->capiService->processRequest($request);
+
+        $fbc = $capiParams['fbc'] ?? null;
+        $fbp = $capiParams['fbp'] ?? null;
+        $clientIpAddress = $capiParams['client_ip_address'] ?? null;
+
+        $this->logger->info('fb param builder client ip ' . $clientIpAddress);
+        $this->logger->info('user info client ip ' . $userInfo['ip']);
+
+        // Store in session for subsequent events (OTP, Lead)
+        if ($fbc) {
             $this->session->set(self::SESSION_FBC, $fbc);
         }
-        $fbp = $request->cookies->get('_fbp') ?? $this->session->get(self::SESSION_FBP);
+        if ($fbp) {
+            $this->session->set(self::SESSION_FBP, $fbp);
+        }
 
         $userDataArray = [
-            'ip' => $userInfo['ip'],
+            'ip' => $clientIpAddress ?? $userInfo['ip'],
             'agent' => $userInfo['useragent'],
             'phone' => $phoneForMatching,
             'fbp' => $fbp,
@@ -272,7 +279,7 @@ class FormController extends BaseController
         } elseif (($response['status'] ?? null) === self::API_ERROR_TEMPORARY_FAILURE) {
             $smsNumber = $this->config['sms']['number'] ?? null;
             $smsKeyword = $this->config['sms']['keyword'] ?? null;
-            
+
             if (!($smsNumber && $smsKeyword)) {
                 $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
                 $this->logger->error('Temporary system error encountered', [
