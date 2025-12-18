@@ -13,14 +13,6 @@
 </script>
 <?php endif; ?>
 
-
-<section class="img-section">
-    <div class="img-container">
-        <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>"
-            alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
-    </div>
-</section>
-
 <section class="form-section">
     <form action="" method="post" 
         <?php if (!empty($config['google']['ga_measurement_id'])): ?>

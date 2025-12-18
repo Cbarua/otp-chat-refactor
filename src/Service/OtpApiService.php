@@ -78,7 +78,7 @@ class OtpApiService implements OtpApiInterface
                     ],
                     'originalResponse' => $response
                 ];
-            } elseif (strpos($lastResponse['statusDetail'] ?? null, 'Temporary System Error') !== false) {
+            } elseif (strpos($lastResponse['statusDetail'] ?? '', 'Temporary System Error') !== false) {
                 return [
                     'status' => 'Temporary System Error',
                     'message' => $lastResponse['statusDetail'] ?? 'Temporary system error encountered.',

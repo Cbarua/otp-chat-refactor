@@ -11,7 +11,9 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <link rel="shortcut icon" href="assets/images/icons/two-hearts.png" type="image/x-icon">
+    <link rel="shortcut icon" 
+        href="<?php echo htmlspecialchars($_ENV['ICON_PATH'], ENT_QUOTES, 'UTF-8') ?? 'assets/images/icons/two-hearts.png' ?>" 
+        type="image/x-icon">
     
     <link rel="stylesheet" href="assets/css/blog.css">
     
@@ -76,3 +78,9 @@
 </head>
 <body>
     <div class="box-container">
+        <section class="img-section">
+            <div class="img-container">
+                <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>"
+                    alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
+            </div>
+        </section>

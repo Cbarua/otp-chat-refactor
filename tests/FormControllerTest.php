@@ -182,6 +182,12 @@ class FormControllerTest extends TestCase
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
 
+        // Stub processRequest to simulate CAPI service returning an FBC
+        $this->capiServiceMock->method('processRequest')->willReturn([
+            'fbc' => 'fb.1.1234567890.test_fbclid_val',
+            'fbp' => 'fb.1.1234567890.1234567890'
+        ]);
+
         $this->capiServiceMock->expects($this->once())
             ->method('sendEvent')
             ->with(
@@ -190,7 +196,8 @@ class FormControllerTest extends TestCase
                 $this->anything(),
                 $this->callback(function ($userData) {
                     // Check if fbc is generated and passed
-                    return strpos($userData['fbc'], 'fb.1.') === 0 &&
+                    return !empty($userData['fbc']) &&
+                        strpos($userData['fbc'], 'fb.1.') === 0 &&
                         strpos($userData['fbc'], 'test_fbclid_val') !== false;
                 })
             );

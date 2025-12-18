@@ -212,9 +212,6 @@ class FormController extends BaseController
         $fbp = $capiParams['fbp'] ?? null;
         $clientIpAddress = $capiParams['client_ip_address'] ?? null;
 
-        $this->logger->info('fb param builder client ip ' . $clientIpAddress);
-        $this->logger->info('user info client ip ' . $userInfo['ip']);
-
         // Store in session for subsequent events (OTP, Lead)
         if ($fbc) {
             $this->session->set(self::SESSION_FBC, $fbc);

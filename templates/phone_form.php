@@ -4,15 +4,13 @@
 // This template has access to $config, $pageViewEventId, $testEventCode, $errorMessage, etc.
 ?>
 
-<section class="img-section">
-    <div class="img-container">
-        <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>"
-            alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
-    </div>
-</section>
-
 <section class="form-section">
-    <form id="leadForm" action="" method="post"> <span class="form-text">ඔබගේ දුරකතන අංකය පහතින් ඇතුළත් කරන්න</span>
+    <form id="leadForm" action="" method="post">
+        <?php if (isset($_ENV['FORM_TITLE'])): ?>
+            <span class="form-title"><?php echo htmlspecialchars($_ENV['FORM_TITLE'], ENT_QUOTES, 'UTF-8'); ?></span>
+        <?php endif; ?>
+
+        <span class="form-text">ඔබගේ දුරකතන අංකය පහතින් ඇතුළත් කරන්න</span>
 
         <?php if (isset($errorMessage)): ?>
             <div class="alert alert-danger"><?php echo htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8'); ?></div>
