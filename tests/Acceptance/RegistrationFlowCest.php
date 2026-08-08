@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Acceptance;
 
 use Tests\Support\AcceptanceTester;
+use PHPUnit\Framework\Assert;
 
 final class RegistrationFlowCest
 {
@@ -577,5 +578,75 @@ final class RegistrationFlowCest
         }
 
         $I->fail('Failed to trigger rate limiter after 10 attempts.');
+    }
+
+    public function testPreventsRedundantOtpRequest(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test that redundant OTP requests are prevented');
+
+        // Ensure log exists
+        if (!file_exists(__DIR__ . '/../../logs/mock_api.log')) {
+            file_put_contents(__DIR__ . '/../../logs/mock_api.log', '');
+        }
+
+        // 1. First request
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+        $I->wait(3);
+        $I->seeInCurrentUrl('/otp');
+
+        // Check log count should be at least 1 (start baseline)
+        $count1 = $this->countMockApiRequests();
+
+        // 2. Go back and resubmit immediately
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        // Should redirect immediately
+        $I->wait(2);
+        $I->seeInCurrentUrl('/otp');
+
+        // Check log count = count1 (Should NOT increase)
+        $count2 = $this->countMockApiRequests();
+        Assert::assertEquals($count1, $count2, 'Should NOT have made a new API request');
+    }
+
+    public function testExpiredOtpRenewal(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test expired OTP auto-renewal');
+
+        // 1. Get OTP
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+        $I->wait(3);
+
+        // 2. Enter magic "expired" OTP
+        // "777777" triggers "OTP request has being expired" in MockApiController
+        $I->fillField('otp', '777777');
+        $I->click('Verify');
+        $I->wait(5); // Wait for renewal call
+
+        // 3. Verify message
+        $I->seeInCurrentUrl('/otp');
+        $I->see('Your OTP expired. A new OTP has been sent to your phone.', '.alert-danger');
+
+        // 4. Verify we can complete with valid OTP (to ensure state is good)
+        $I->fillField('otp', self::MAGIC_OTP);
+        $I->click('Verify');
+        $I->wait(3);
+        $I->seeInCurrentUrl('/thanks');
+    }
+
+    private function countMockApiRequests(): int
+    {
+        $logPath = __DIR__ . '/../../logs/mock_api.log';
+        if (!file_exists($logPath)) {
+            return 0;
+        }
+        $content = file_get_contents($logPath);
+        return substr_count($content, 'Request Processed');
     }
 }

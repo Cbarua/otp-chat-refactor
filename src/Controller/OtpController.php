@@ -30,6 +30,7 @@ class OtpController extends BaseController
     public const OTP_SUCCESS = 'success';
     public const OTP_INVALID = 'Invalid OTP';
     public const OTP_NOT_FOUND = 'Could not find OTP';
+    public const OTP_STATUS_EXPIRED = 'OTP request has being expired';
     public const SUB_STATUS_PENDING = 'INITIAL CHARGING PENDING';
     public const SUB_STATUS_REGISTERED = 'REGISTERED';
 
@@ -39,6 +40,7 @@ class OtpController extends BaseController
     private const ERROR_OTP_INVALID_LENGTH = 'Invalid OTP. Must be 6 digits.';
     private const ERROR_OTP_INVALID = 'Invalid OTP. Please enter the correct OTP.';
     private const ERROR_OTP_NEW = 'Please try again with the new OTP sent to your phone.';
+    private const ERROR_OTP_EXPIRED = 'Your OTP expired. A new OTP has been sent to your phone.';
     private const ERROR_GENERIC = 'An error occurred. Please try again later.';
 
 
@@ -286,6 +288,11 @@ class OtpController extends BaseController
             return $this->handleSuccessfulVerification($response, $platform);
         }
 
+        // Handle expired OTP specifically
+        if (($response['status'] ?? null) === self::OTP_STATUS_EXPIRED) {
+            return $this->handleExpiredToken($request, $token);
+        }
+
         // If SMS config is set, show sms link
         // Backward compatibility
         if (!empty($this->config['sms']['number']) && !empty($this->config['sms']['keyword'])) {
@@ -441,5 +448,49 @@ class OtpController extends BaseController
             return true;
         }
         return false;
+    }
+
+    private function handleExpiredToken(Request $request, array $token): Response
+    {
+        $this->logger->info('OTP reference expired during verification. Attempting to get a new one.');
+
+        $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
+        $subscriberId = $phoneData['telco_format'] ?? null;
+        $platform = $token['platform'] ?? $phoneData['platform'] ?? null;
+        // Do NOT exclude the current URL, as it might just be a token expiry, not a system failure.
+        $failedUrls = [];
+
+        if (empty($subscriberId) || empty($platform)) {
+            $this->logger->error('Cannot auto-renew expired OTP due to missing data.', [
+                'has_subscriber_id' => !empty($subscriberId),
+                'has_platform' => !empty($platform)
+            ]);
+            $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+            return $this->redirect('otp');
+        }
+
+        $response = $this->attemptFallback($platform, $subscriberId, $request, $failedUrls);
+
+        if (($response['status'] ?? null) === self::OTP_SUCCESS) {
+            if (($response['verificationToken']['usedApiUrl'] ?? null) === $token['usedApiUrl']) {
+                $this->logger->info('Successfully renewed expired OTP.');
+            } else {
+                $this->logger->info('Successfully received new OTP from a fallback URL.');
+            }
+
+            $newToken = $response['verificationToken'];
+            $this->session->set(self::SESSION_OTP_TOKEN, $newToken);
+            $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_EXPIRED);
+            
+            // Reset invalid OTP count
+            $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
+            $this->session->unset(self::SESSION_SHOW_SMS_LINK);
+
+            return $this->redirect('otp');
+        }
+
+        $this->logger->error('Failed to renew expired OTP.');
+        $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+        return $this->redirect('otp');
     }
 }

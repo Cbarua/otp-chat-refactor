@@ -564,4 +564,47 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
+
+    public function testHandleOtpFormVerificationExpiredTriggersRenew(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => [
+                'referenceNo' => 'expired-ref',
+                'platform' => 'ideamart',
+                'usedApiUrl' => 'url1'
+            ],
+            OtpController::SESSION_PHONE_DATA => [
+                'platform' => 'ideamart',
+                'telco_format' => 'tel:123'
+            ]
+        ];
+
+        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+
+        // 1. Verify fails with EXPIRED status
+        $this->otpServiceMock->expects($this->once())
+            ->method('verifyOtp')
+            ->willReturn(['status' => OtpController::OTP_STATUS_EXPIRED]);
+
+        // 2. Expect re-request (with empty failedUrls because we don't exclude on expiry)
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', 'tel:123', $this->anything(), [])
+            ->willReturn([
+                'status' => 'success',
+                'verificationToken' => ['referenceNo' => 'new-ref-123']
+            ]);
+
+        $this->controller->handleOtpForm($request);
+
+        // 3. Verify success redirect and message
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        // "Your OTP expired..." message
+        $this->assertStringContainsString('Your OTP expired', $this->sessionData[OtpController::SESSION_ERROR]);
+        // Token updated
+        $this->assertEquals('new-ref-123', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
+    }
 }

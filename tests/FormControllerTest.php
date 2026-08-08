@@ -419,4 +419,66 @@ class FormControllerTest extends TestCase
         $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
     }
+
+    public function testHandlePhoneFormReusesValidToken(): void
+    {
+        // Valid token created now
+        $this->sessionData[FormController::SESSION_OTP_TOKEN] = [
+            'referenceNo' => 'existing-ref',
+            'createdAt' => time()
+        ];
+        $this->sessionData[FormController::SESSION_PHONE_DATA] = [
+            'capi_format' => '94771234567',
+            'telco_format' => 'tel:94771234567',
+            'platform' => 'ideamart'
+        ];
+
+        $request = new Request([], [
+            'mobile' => '0771234567',
+            'csrf_token' => 'valid-token'
+        ]);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
+        // API should NOT be called
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+    }
+
+    public function testHandlePhoneFormIgnoresExpiredToken(): void
+    {
+        // Expired token (10 minutes ago)
+        $this->sessionData[FormController::SESSION_OTP_TOKEN] = [
+            'referenceNo' => 'expired-ref',
+            'createdAt' => time() - 600
+        ];
+        $this->sessionData[FormController::SESSION_PHONE_DATA] = [
+            'capi_format' => '94771234567',
+            'telco_format' => 'tel:94771234567',
+            'platform' => 'ideamart'
+        ];
+
+        $request = new Request([], [
+            'mobile' => '0771234567', // Same number
+            'csrf_token' => 'valid-token'
+        ]);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
+        // API SHOULD be called
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref', 'createdAt' => time()]]);
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        // Verify token was updated
+        $this->assertEquals('new-ref', $this->sessionData[FormController::SESSION_OTP_TOKEN]['referenceNo']);
+    }
 }

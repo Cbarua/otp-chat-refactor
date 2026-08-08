@@ -156,6 +156,27 @@ class FormController extends BaseController
         $this->session->set(self::SESSION_FBC, $request->request->get('fbc'));
 
         // 4. Request OTP from the API. The service now handles platform-specific endpoints.
+
+        // Check if we have a valid recent OTP for this number to avoid redundant calls
+        $existingToken = $this->session->get(self::SESSION_OTP_TOKEN);
+        $existingPhoneData = $this->session->get(self::SESSION_PHONE_DATA);
+
+        // Check if phone matches and token is valid (less than 5 minutes old)
+        if (
+            is_array($existingToken) &&
+            is_array($existingPhoneData) &&
+            ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? '') &&
+            isset($existingToken['createdAt']) &&
+            (time() - $existingToken['createdAt'] < 300) // 5 minutes validity
+        ) {
+            $this->logger->info('Reusing existing valid OTP token', [
+                'phone' => $phoneData['capi_format'],
+                'age' => time() - $existingToken['createdAt']
+            ]);
+            // Skip API call and reuse existing flow
+            return $this->redirect('otp');
+        }
+
         $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
         $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
 

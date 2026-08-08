@@ -74,7 +74,8 @@ class OtpApiService implements OtpApiInterface
                         'referenceNo' => $response['referenceNo'],
                         'usedApiUrl' => $baseUrl,
                         'failedUrls' => $failedUrls,
-                        'platform' => $platform // Include platform for fallback logic
+                        'platform' => $platform, // Include platform for fallback logic
+                        'createdAt' => time() // Add timestamp for expiry check
                     ],
                     'originalResponse' => $response
                 ];
@@ -169,7 +170,7 @@ class OtpApiService implements OtpApiInterface
                 $this->logger->error("OTP Service Error: Invalid JSON response from API", ['body' => $body]);
                 return ['status' => 'error', 'message' => 'Invalid JSON response from API'];
             }
-            
+
             if (!is_array($decodedBody)) {
                 $this->logger->error("OTP Service Error: API response is not an array", ['body' => $body, 'decoded' => $decodedBody]);
                 return ['status' => 'error', 'message' => 'Unexpected API response format'];

@@ -63,6 +63,13 @@ class MockApiController
                 'statusCode' => 'E9999',
                 'statusDetail' => 'Simulated System Error'
             ]);
+        } elseif ($otp === '777777') {
+            // Simulate expired reference number
+            $this->sendResponse(200, [
+                'status' => 'OTP request has being expired',
+                'statusCode' => 'E1851',
+                'statusDetail' => 'OTP request has being expired'
+            ]);
         } else {
             $this->sendResponse(200, [
                 'status' => 'Invalid OTP',

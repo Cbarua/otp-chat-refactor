@@ -195,4 +195,19 @@ class OtpApiServiceTest extends TestCase
         $this->assertEquals('error', $result['status']);
         $this->assertEquals('A system error occurred', $result['originalResponse']['message']);
     }
+
+    public function testGetOtpReturnsTimestamp(): void
+    {
+        $mockClient = $this->createMockClient([
+            new Response(200, [], json_encode(['statusCode' => 'S1000', 'referenceNo' => '12345-abc']))
+        ]);
+
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $mockClient);
+
+        $result = $service->getOtp('mspace', 'tel:94711234567', []);
+
+        $this->assertEquals('success', $result['status']);
+        $this->assertArrayHasKey('createdAt', $result['verificationToken']);
+        $this->assertIsInt($result['verificationToken']['createdAt']);
+    }
 }
