@@ -81,7 +81,7 @@
 
             const formData = new FormData(form);
 
-            const redirectMessages = ["Session expired", "Registration failed", "Security check failed"];
+            const redirectMessages = ["Session expired", "Registration failed", "Security check failed", "An error occurred"];
             
             fetch('', {
                 method: 'POST',

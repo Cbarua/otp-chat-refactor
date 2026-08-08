@@ -272,4 +272,28 @@ final class OtpFormAjaxCest
 
         $I->seeInCurrentUrl('/thanks');
     }
+
+    public function testOtpFormExpiredOtpRenewalFailureRedirectsToHome(AcceptanceTester $I): void
+    {
+        $this->logTestStart($I, 'Test expired OTP renewal failure shows error on /otp and redirects to /');
+
+        $this->navigateToOtpForm($I);
+
+        // Set fail gateway after reaching OTP page so initial getOtp succeeds but renewal fails
+        $customUrls = json_encode(['http://localhost:8081/fail1']);
+        $I->setCookie('TEST_IDEAMART_URLS', rawurlencode($customUrls));
+        $_COOKIE['TEST_IDEAMART_URLS'] = $customUrls;
+
+        $I->fillField('otp', '111111');
+        $I->click('Verify');
+        $I->wait(1);
+
+        // Shows error on /otp page first
+        $I->see('An error occurred. Please try again later.', '#otpError');
+
+        // Wait for 2s JS timeout to redirect to / homepage and complete page load
+        $I->wait(6);
+        $I->seeInCurrentUrl('/');
+        $I->seeElement('input[name="mobile"]');
+    }
 }

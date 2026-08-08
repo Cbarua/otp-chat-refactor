@@ -417,6 +417,8 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
         $this->assertEquals('./', $this->controller->redirectUrl);
+        // Ensure the error message is displayed in homepage
+        $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
     public function testHandleExpiredTokenRenewFallbackUrl(): void

@@ -482,6 +482,29 @@ final class RegistrationFlowCest
         unset($_COOKIE['DISABLE_SMS_FALLBACK']);
     }
 
+    public function testExpiredOtpRenewalFailureRedirectsToHomeNoJs(NoJsTester $I): void
+    {
+        $this->logTestStart($I, 'Test expired OTP renewal failure redirects to / showing error on homepage (NoJS)');
+
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        $I->seeInCurrentUrl('/otp');
+
+        // Set fail gateway after reaching OTP page so initial getOtp succeeds but renewal fails
+        $customUrls = json_encode(['http://localhost:8081/fail1']);
+        $I->setCookie('TEST_IDEAMART_URLS', rawurlencode($customUrls));
+        $_COOKIE['TEST_IDEAMART_URLS'] = $customUrls;
+
+        $I->fillField('otp', '777777');
+        $I->click('Verify');
+
+        // Without AJAX, redirects directly to / homepage showing error in .alert-danger (#phoneError)
+        $I->seeInCurrentUrl('/');
+        $I->see('An error occurred. Please try again later.', '.alert-danger');
+    }
+
     private function countMockApiRequests(): int
     {
         $files = \Tests\Support\TestLogHelper::getLogFiles('RegistrationFlowCest');
