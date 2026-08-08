@@ -12,6 +12,8 @@ return [
         'prefixes' => [
             'hutch' => ['72', '78'],
             'mobitel' => ['70', '71'],
+            'dialog' => ['74', '76', '77'],
+            'airtel' => ['75'],
         ],
         'values' => [
             'hutch' => 0.015,
