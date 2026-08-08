@@ -105,8 +105,7 @@ class FormController extends BaseController
         $this->session->unset(self::SESSION_ERROR);
         $this->session->unset(self::SESSION_ALREADY_REGISTERED);
 
-        // Redirect from OTP page if SMS link flag is set
-        // Clear invalid OTP count and SMS link flag if exists
+        // Clear invalid OTP count and SMS link flag if exists when returning to the form
         if ($this->session->has(self::SESSION_SHOW_SMS_LINK) || $this->session->has(self::SESSION_INVALID_OTP_COUNT)) {
             $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
             $this->session->unset(self::SESSION_SHOW_SMS_LINK);
@@ -121,23 +120,35 @@ class FormController extends BaseController
     public function handlePhoneForm(Request $request): Response
     {
         $userInfo = $this->userInfoService->get($request);
+        $rawPhone = $request->request->get('mobile', '');
+        $isAjax = $request->isXmlHttpRequest();
+
+        $data = ['raw_phone' => $rawPhone] + $userInfo;
+        if ($isAjax) {
+            $this->logger->info('Phone form submitted via AJAX', $data);
+        } else {
+            $this->logger->info('Phone form submitted', $data);
+        }
 
         // 0. Validate CSRF Token
         $csrfToken = $request->request->get('csrf_token');
         if (!$this->csrfService->validate($csrfToken)) {
-            $this->logger->warning('CSRF token validation failed on phone form submission.', ['csrf_token' => $csrfToken, ...$userInfo]);
+            $this->logger->warning('CSRF token validation failed on phone form submission.', ['csrf_token' => $csrfToken]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_CSRF]);
+            }
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
             return $this->redirect('./');
         }
-
-        $rawPhone = $request->request->get('mobile', '');
-        $this->logger->info('Phone form submitted', ['raw_phone' => $rawPhone, ...$userInfo]);
 
         // 1. Rate Limiting Check
         // Limit: 5 attempts per IP per minute
         $rateLimitKey = 'phone_submission:' . $userInfo['ip'];
         if (!$this->rateLimiter->check($rateLimitKey, 5, 60)) {
-            $this->logger->warning('Rate limit exceeded for phone submission.', ['ip' => $userInfo['ip'], 'raw_phone' => $rawPhone]);
+            $this->logger->warning('Rate limit exceeded for phone submission.', ['rate_limit_key' => $rateLimitKey]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_RATE_LIMIT]);
+            }
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
             return $this->redirect('./');
         }
@@ -146,8 +157,11 @@ class FormController extends BaseController
         // 2. Validate phone number
         $phoneData = Validator::normalizePhone($rawPhone, $this->carrierConfig, 'LK', $this->logger);
         if ($phoneData === null) {
-            $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_PHONE);
             $this->logger->warning('Invalid phone number submitted', ['raw_phone' => $rawPhone]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_INVALID_PHONE]);
+            }
+            $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_PHONE);
             return $this->redirect('./');
         }
 
@@ -162,12 +176,15 @@ class FormController extends BaseController
         $existingPhoneData = $this->session->get(self::SESSION_PHONE_DATA);
 
         // Check if phone matches and token is valid (less than 5 minutes old)
-        $isSameFormat = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
-        $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
-        $tokenAge = time() - $tokenCreatedAt;
-        $isRecent = $tokenAge < 300;
+        $isSameNumber = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
+        $isRecent = false;
+        if (is_array($existingToken)) {
+            $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
+            $tokenAge = time() - $tokenCreatedAt;
+            $isRecent = $tokenAge < 300;
+        }
 
-        if ($isSameFormat && $isRecent) {
+        if ($isSameNumber && $isRecent) {
             $this->logger->notice('Reusing existing valid OTP token', [
                 'phone' => $phoneData['capi_format'],
                 'created_at' => $this->timestampToDateString($tokenCreatedAt),
@@ -175,6 +192,9 @@ class FormController extends BaseController
                 'age' => $tokenAge
             ]);
             // Skip API call and reuse existing flow
+            if ($isAjax) {
+                return $this->json(['status' => 'success', 'redirect' => 'otp']);
+            }
             return $this->redirect('otp');
         }
 
@@ -182,7 +202,7 @@ class FormController extends BaseController
         $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
 
         // 5. Handle the final API response
-        return $this->handleOtpApiResponse($response, $phoneData);
+        return $this->handleOtpApiResponse($request, $response, $phoneData);
     }
 
     /**
@@ -268,8 +288,10 @@ class FormController extends BaseController
     /**
      * Handles the final API response after attempting to get an OTP.
      */
-    private function handleOtpApiResponse(array $response, array $phoneData): Response
+    private function handleOtpApiResponse(Request $request, array $response, array $phoneData): Response
     {
+        $isAjax = $request->isXmlHttpRequest();
+
         // Success condition is now based on the 'status' key from our service
         if (($response['status'] ?? null) === 'success') {
             // SUCCESS: OTP was requested.
@@ -278,6 +300,10 @@ class FormController extends BaseController
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
             // Store the opaque token for the verification step.
             $this->session->set(self::SESSION_OTP_TOKEN, $response['verificationToken']);
+
+            if ($isAjax) {
+                return $this->json(['status' => 'success', 'redirect' => 'otp']);
+            }
             return $this->redirect('otp');
         }
 
@@ -286,15 +312,12 @@ class FormController extends BaseController
 
         // Check statusDetail for "already registered"
         if ($statusDetail === self::API_STATUS_ALREADY_REGISTERED) {
-            $this->session->set(self::SESSION_ALREADY_REGISTERED, self::ALREADY_REGISTERED);
-            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-
             // Only log if ALL failed attempts were due to "already registered"
             $failedAttempts = $response['failedAttempts'] ?? [];
             $alreadyRegisteredUrls = [];
             foreach ($failedAttempts as $attempt) {
                 if (($attempt['response']['statusDetail'] ?? '') === self::API_STATUS_ALREADY_REGISTERED) {
-                    $alreadyRegisteredUrls[] = $attempt['url'];
+                    $alreadyRegisteredUrls[] = $attempt['base_url'];
                 }
             }
 
@@ -309,17 +332,27 @@ class FormController extends BaseController
                 'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
             ]);
 
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::API_STATUS_ALREADY_REGISTERED]);
+            }
+
+            $this->session->set(self::SESSION_ALREADY_REGISTERED, self::ALREADY_REGISTERED);
+            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
+
         // Check statusDetail for "temporary system error"
         } elseif (str_contains($statusDetail, self::API_ERROR_TEMPORARY_FAILURE)) {
             $smsNumber = $this->config['sms']['number'] ?? null;
             $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
             if (!($smsNumber && $smsKeyword)) {
-                $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
                 $this->logger->error('Temporary system error encountered', [
                     'platform' => $phoneData['platform'],
                     'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
                 ]);
+                if ($isAjax) {
+                    return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC]);
+                }
+                $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
                 return $this->redirect('./');
             }
 
@@ -332,6 +365,15 @@ class FormController extends BaseController
                 'platform' => $phoneData['platform'],
                 'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
             ]);
+
+            if ($isAjax) {
+                return $this->json([
+                    'status' => 'error', 
+                    'message' => 'Temporary system error', 
+                    'showSmsLink' => true, 
+                    'redirect' => 'otp'
+                ]);
+            }
             return $this->redirect('otp');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
@@ -340,6 +382,13 @@ class FormController extends BaseController
                 'phone' => $phoneData['capi_format'],
                 ...$response
             ]);
+        }
+
+        if ($isAjax) {
+            // Clear error messages
+            $this->session->unset(self::SESSION_ERROR);
+            $this->session->unset(self::SESSION_ALREADY_REGISTERED);
+            return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC]);
         }
         return $this->redirect('./');
     }

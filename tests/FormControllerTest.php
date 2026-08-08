@@ -175,6 +175,28 @@ class FormControllerTest extends TestCase
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
     }
 
+    public function testShowPhoneFormWithExistingPhoneDataPassesCountryToCapi(): void
+    {
+        $request = Request::createFromGlobals();
+        $this->sessionData[FormController::SESSION_PHONE_DATA] = ['capi_format' => '94771234567'];
+
+        $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->expects($this->once())
+            ->method('sendEvent')
+            ->with(
+                'PageView',
+                $this->anything(),
+                $this->anything(),
+                $this->callback(function ($userData) {
+                    return isset($userData['country']) && $userData['country'] === 'lk';
+                })
+            );
+
+        $this->controller->showPhoneForm($request);
+
+        $this->assertEquals('phone_form', $this->controller->renderedView);
+    }
+
     public function testShowPhoneFormGeneratesFbcFromQueryParam(): void
     {
         $request = Request::createFromGlobals();
@@ -552,5 +574,223 @@ class FormControllerTest extends TestCase
         // Should have set dummy OTP token
         $this->assertTrue($this->sessionData[FormController::SESSION_OTP_TOKEN]);
     }
+
+    public function testHandlePhoneFormAjaxCsrfFailure(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'invalid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('invalid-token')->willReturn(false);
+        $this->rateLimiterMock->expects($this->never())->method('check');
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Security check failed. Please try again.', $data['message']);
+    }
+
+    public function testHandlePhoneFormAjaxRateLimitExceeded(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(false);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Too many attempts. Please try again later.', $data['message']);
+    }
+
+    public function testHandlePhoneFormAjaxInvalidPhone(): void
+    {
+        $request = new Request([], ['mobile' => '12345', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Invalid phone number. Example: 0771234567', $data['message']);
+    }
+
+    public function testHandlePhoneFormAjaxSuccess(): void
+    {
+        $request = new Request([], [
+            'mobile' => '0771234567',
+            'fbp' => 'fb.1.test_fbp',
+            'fbc' => 'fb.1.test_fbc',
+            'csrf_token' => 'valid-token'
+        ]);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'otp_ref_999']]);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('success', $data['status']);
+        $this->assertEquals('otp', $data['redirect']);
+    }
+
+    public function testHandlePhoneFormAjaxUserAlreadyRegistered(): void
+    {
+        $request = new Request([], ['mobile' => '0711234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn([
+                'status' => 'FAIL',
+                'statusDetail' => 'user already registered',
+                'finalUrl' => 'https://ideamart.api/first',
+                'failedAttempts' => [
+                    [
+                        'base_url' => 'https://ideamart.api/first',
+                        'response' => ['statusDetail' => 'user already registered']
+                    ]
+                ]
+            ]);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('user already registered', $data['message']);
+    }
+
+    public function testHandlePhoneFormAjaxOtpTemporarySystemErrorWithoutSmsFallback(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Temporary System Error']);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('An error occurred. Please try again later.', $data['message']);
+    }
+
+    public function testHandlePhoneFormAjaxReusesValidToken(): void
+    {
+        $this->sessionData[FormController::SESSION_OTP_TOKEN] = [
+            'referenceNo' => 'existing-ref',
+            'createdAt' => time()
+        ];
+        $this->sessionData[FormController::SESSION_PHONE_DATA] = [
+            'capi_format' => '94771234567',
+            'telco_format' => 'tel:94771234567',
+            'platform' => 'ideamart'
+        ];
+
+        $request = new Request([], [
+            'mobile' => '0771234567',
+            'csrf_token' => 'valid-token'
+        ]);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('success', $data['status']);
+        $this->assertEquals('otp', $data['redirect']);
+    }
+
+    public function testHandlePhoneFormAjaxOtpTemporarySystemErrorWithSmsFallback(): void
+    {
+        $configWithSms = $this->config;
+        $configWithSms['sms'] = [
+            'number' => '1234',
+            'keyword' => 'REG'
+        ];
+
+        $controller = new TestableFormController(
+            $configWithSms,
+            $this->carrierConfig,
+            $this->otpServiceMock,
+            $this->userLoggerMock,
+            $this->capiServiceMock,
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Temporary System Error']);
+
+        $response = $controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Temporary system error', $data['message']);
+        $this->assertTrue($data['showSmsLink']);
+        $this->assertEquals('otp', $data['redirect']);
+        $this->assertTrue($this->sessionData[FormController::SESSION_SHOW_SMS_LINK]);
+        $this->assertTrue($this->sessionData[FormController::SESSION_OTP_TOKEN]);
+    }
+
+    public function testHandlePhoneFormAjaxGenericError(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Unknown Service Error']);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $this->assertEquals(200, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('An error occurred. Please try again later.', $data['message']);
     }
 }

@@ -123,7 +123,7 @@ class ThankYouController extends BaseController
         ];
 
         $otpToken = $this->session->get(self::SESSION_OTP_TOKEN);
-        $usedUrl = $otpToken['usedApiUrl'] ?? 'unknown';
+        $usedUrl = is_array($otpToken) ? ($otpToken['usedApiUrl'] ?? 'unknown') : 'unknown';
         $this->logger->info('Thank You page reached. Conversion successful.', ['app' => $this->getAppNamesFromUrls([$usedUrl])[0]]);
 
         // 6. Clear session to prevent re-firing

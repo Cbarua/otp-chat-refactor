@@ -154,11 +154,19 @@ class OtpController extends BaseController
         $token = $this->session->get(self::SESSION_OTP_TOKEN);
         $visitorId = $this->session->get('visitor_id', 'unknown');
 
+        // if rate limit exceeded, attempt to get otp from another api
         if ($this->isRateLimitExceeded($visitorId)) {
             return $this->handleFailedVerification($request, $token, true);
         }
 
-        return $this->processOtp($request, $token);
+        $response = $this->processOtp($request, $token);
+
+        // If it is an AJAX request, clear the SESSION_ERROR to prevent it from leaking into reloads
+        if ($request->isXmlHttpRequest()) {
+            $this->session->unset(self::SESSION_ERROR);
+        }
+
+        return $response;
     }
 
     private function validateOtpRequest(Request $request): ?Response
@@ -166,12 +174,28 @@ class OtpController extends BaseController
         $csrfToken = $request->request->get('csrf_token');
         if (!$this->csrfService->validate($csrfToken)) {
             $this->logger->warning('CSRF token validation failed on OTP form submission.', ['csrf_token' => $csrfToken]);
+            if ($request->isXmlHttpRequest()) {
+                // load the otp page for new csrf token
+                return $this->json(['status' => 'error', 'message' => self::ERROR_CSRF, 'redirect' => 'otp']);
+            }
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
             return $this->redirect('otp');
         }
 
         if (!$this->session->has(self::SESSION_OTP_TOKEN)) {
             $this->logger->error('OTP submission without a token.');
+            if ($request->isXmlHttpRequest()) {
+                return $this->json(['status' => 'error', 'message' => 'Session expired. Please try again.', 'redirect' => './']);
+            }
+            return $this->redirect('./');
+        }
+
+        $token = $this->session->get(self::SESSION_OTP_TOKEN);
+        if (!is_array($token)) {
+            $this->logger->error('Invalid OTP token structure in session.', ['token_type' => gettype($token)]);
+            if ($request->isXmlHttpRequest()) {
+                return $this->json(['status' => 'error', 'message' => 'Session expired. Please try again.', 'redirect' => './']);
+            }
             return $this->redirect('./');
         }
 
@@ -181,11 +205,17 @@ class OtpController extends BaseController
     private function processOtp(Request $request, array $token): Response
     {
         $rawOtp = $request->request->get('otp', '');
-        $this->logger->info('OTP form submitted', ['raw_otp' => $rawOtp, 'ref_no' => $token['referenceNo'] ?? 'N/A']);
+        $isAjax = $request->isXmlHttpRequest();
+        $context = ['raw_otp' => $rawOtp, 'ref_no' => $token['referenceNo'] ?? 'N/A'];
+
+        $this->logger->info('OTP form submitted ' . ($isAjax ? 'via AJAX' : ''), $context);
 
         if (!Validator::validateOtp($rawOtp)) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID_LENGTH);
             $this->logger->warning(self::ERROR_OTP_INVALID_LENGTH, ['otp' => $rawOtp]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_OTP_INVALID_LENGTH]);
+            }
             return $this->redirect('otp');
         }
 
@@ -290,13 +320,16 @@ class OtpController extends BaseController
      */
     private function handleVerificationResponse(Request $request, array $response, array $token): Response
     {
-        if (($response['status'] ?? null) === self::OTP_SUCCESS) {
+        $isAjax = $request->isXmlHttpRequest();
+        $responseStatus = $response['status'] ?? null;
+
+        if ($responseStatus === self::OTP_SUCCESS) {
             $platform = $token['platform'] ?? ($this->session->get(self::SESSION_PHONE_DATA)['platform'] ?? null);
-            return $this->handleSuccessfulVerification($response, $platform);
+            return $this->handleSuccessfulVerification($request, $response, $platform);
         }
 
         // Handle expired OTP specifically
-        if (($response['status'] ?? null) === self::OTP_STATUS_EXPIRED) {
+        if ($responseStatus === self::OTP_STATUS_EXPIRED) {
             return $this->handleExpiredToken($request, $token);
         }
 
@@ -304,53 +337,63 @@ class OtpController extends BaseController
 
         // If SMS config is set, show sms link
         // Backward compatibility
-        if (!empty($this->config['sms']['number']) && !empty($this->config['sms']['keyword'])) {
-            if (($response['status'] ?? null) === self::OTP_INVALID) {
+        $smsNumber = $this->config['sms']['number'] ?? null;
+        $smsKeyword = $this->config['sms']['keyword'] ?? null;
+
+        if ($smsNumber && $smsKeyword) {
+            if ($responseStatus === self::OTP_INVALID) {
                 // Increment invalid OTP count
                 $count = $this->session->get(self::SESSION_INVALID_OTP_COUNT, 0) + 1;
                 $this->session->set(self::SESSION_INVALID_OTP_COUNT, $count);
+                $context = ['invalid_otp_count' => $count, 'app' => $appName, 'response' => $response];
 
                 if ($count >= 3) {
                     $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
-                    $this->logger->notice('3 invalid OTP attempts, showing SMS fallback link.', [
-                        'invalid_otp_count' => $count,
-                        'app' => $appName,
-                        'response' => $response,
-                    ]);
+                    $this->logger->notice('3 invalid OTP attempts, showing SMS fallback link.', $context);
                 } else {
+                    $this->session->set(self::SESSION_SHOW_SMS_LINK, false);
                     $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
-                    $this->logger->notice('Invalid OTP attempt.', [
-                        'invalid_otp_count' => $count,
-                        'app' => $appName,
-                        'response' => $response,
+                    $this->logger->notice('Invalid OTP attempt.', $context);
+                }
+ 
+                if ($isAjax) {
+                    // otp_form shows the error and reload the page to display sms link.
+                    return $this->json([
+                        'status' => 'error', 
+                        'message' => $this->session->get(self::SESSION_ERROR), 
+                        'showSmsLink' => $this->session->get(self::SESSION_SHOW_SMS_LINK)
                     ]);
                 }
 
                 return $this->redirect('otp');
             }
 
-            if (($response['status'] ?? null) === self::OTP_NOT_FOUND) {
+            if ($responseStatus === self::OTP_NOT_FOUND) {
                 $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
                 $this->logger->notice('OTP not found, showing SMS fallback link.', [
                     'app' => $appName,
                     'response' => $response,
                 ]);
+                if ($isAjax) {
+                    return $this->json(['status' => 'error', 'message' => 'OTP not found.', 'showSmsLink' => true]);
+                }
                 return $this->redirect('otp');
             }
         }
 
-        if (($response['status'] ?? null) === self::OTP_INVALID) {
+        // show error message to user for invalid otp
+        // For all other errors, log the failure and attempt to use a fallback API
+        if ($responseStatus === self::OTP_INVALID) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
-            $this->logger->notice('Invalid OTP attempt.', [
-                'app' => $appName,
-                'response' => $response,
-            ]);
+            $this->logger->notice('Invalid OTP attempt.', ['app' => $appName, 'response' => $response]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_OTP_INVALID]);
+            }
             return $this->redirect('otp');
         }
 
-        // For all other errors, log the failure and attempt to use a fallback API
         $this->logger->critical('OTP verification failed with an unexpected status.', [
-            'app' => $this->getAppNamesFromUrls([$token['usedApiUrl'] ?? ''])[0],
+            'app' => $appName,
             'response' => $response,
         ]);
         return $this->handleFailedVerification($request, $token);
@@ -359,11 +402,16 @@ class OtpController extends BaseController
     /**
      * Handles the logic for a successful OTP verification.
      */
-    private function handleSuccessfulVerification(array $response, ?string $platform): Response
+    private function handleSuccessfulVerification(Request $request, array $response, ?string $platform): Response
     {
+        $isAjax = $request->isXmlHttpRequest();
+        // todo: need to update mspace apps to remove this check
         if (!$platform) {
             $this->logger->critical('Could not determine platform for successful verification.');
             $this->session->set(self::SESSION_ERROR, self::ERROR_REGISTRATION_FAILED);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_REGISTRATION_FAILED, 'redirect' => './']);
+            }
             return $this->redirect('./');
         }
 
@@ -380,6 +428,9 @@ class OtpController extends BaseController
             // Clear invalid OTP count and SMS link flag
             $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
             $this->session->unset(self::SESSION_SHOW_SMS_LINK);
+            if ($isAjax) {
+                return $this->json(['status' => 'success', 'redirect' => 'thanks']);
+            }
             return $this->redirect('thanks');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_REGISTRATION_FAILED);
@@ -387,6 +438,9 @@ class OtpController extends BaseController
                 'platform' => $platform,
                 'response' => $response,
             ]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_REGISTRATION_FAILED]);
+            }
             return $this->redirect('otp');
         }
     }
@@ -410,6 +464,11 @@ class OtpController extends BaseController
                 'failed_url' => $failedUrl
             ]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+
+            if ($request->isXmlHttpRequest()) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC, 'redirect' => './']);
+            }
+
             return $this->redirect('./');
         }
 
@@ -420,10 +479,10 @@ class OtpController extends BaseController
         $response = $this->attemptFallback($platform, $subscriberId, $request, $allFailedUrls);
 
         if (($response['status'] ?? null) === 'success') {
-            return $this->handleFallbackSuccess($response, $allFailedUrls);
+            return $this->handleFallbackSuccess($request, $response, $allFailedUrls);
         }
 
-        return $this->handleFallbackFailure($isRateLimit);
+        return $this->handleFallbackFailure($request, $isRateLimit);
     }
 
     /**
@@ -451,11 +510,12 @@ class OtpController extends BaseController
     /**
      * Handles a successful OTP verification response.
      *
+     * @param Request $request The current request.
      * @param array $response The API response containing the verification result.
      * @param array $allFailedUrls A list of API URLs that were attempted.
      * @return Response The response to redirect to.
      */
-    private function handleFallbackSuccess(array $response, array $allFailedUrls): Response
+    private function handleFallbackSuccess(Request $request, array $response, array $allFailedUrls): Response
     {
         $newToken = $response['verificationToken'];
         $newToken['failedUrls'] = $allFailedUrls;
@@ -475,16 +535,20 @@ class OtpController extends BaseController
         $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
         $this->session->unset(self::SESSION_SHOW_SMS_LINK);
 
+        if ($request->isXmlHttpRequest()) {
+            return $this->json(['status' => 'error', 'message' => self::ERROR_OTP_NEW]);
+        }
         return $this->redirect('otp');
     }
 
     /**
      * Handles a failed OTP verification response after all fallback attempts have been exhausted.
      *
+     * @param Request $request The current request.
      * @param bool $isRateLimit Whether the failure was due to rate limiting.
      * @return Response The response to redirect to.
      */
-    private function handleFallbackFailure(bool $isRateLimit): Response
+    private function handleFallbackFailure(Request $request, bool $isRateLimit): Response
     {
         if ($isRateLimit) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
@@ -495,6 +559,10 @@ class OtpController extends BaseController
         $this->logger->error('All fallback OTP requests failed after a verification error.', [
             'error' => $this->session->get(self::SESSION_ERROR)
         ]);
+
+        if ($request->isXmlHttpRequest()) {
+            return $this->json(['status' => 'error', 'message' => $this->session->get(self::SESSION_ERROR)]);
+        }
 
         return $this->redirect('otp');
     }
@@ -542,6 +610,7 @@ class OtpController extends BaseController
 
         // Do NOT exclude the current URL, as it might just be a token expiry, not a system failure.
         $failedUrls = [];
+        $isAjax = $request->isXmlHttpRequest();
 
         if (empty($subscriberId) || empty($platform)) {
             $this->logger->critical('Cannot auto-renew expired OTP due to missing data.', [
@@ -549,7 +618,11 @@ class OtpController extends BaseController
                 'platform' => $platform
             ]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+
             // Critical error, redirect to home page
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC, 'redirect' => './']);
+            }
             return $this->redirect('./');
         }
 
@@ -573,10 +646,12 @@ class OtpController extends BaseController
             $this->session->set(self::SESSION_OTP_TOKEN, $newToken);
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_EXPIRED);
             
-            // Reset invalid OTP count
             $this->session->unset(self::SESSION_INVALID_OTP_COUNT);
             $this->session->unset(self::SESSION_SHOW_SMS_LINK);
 
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => self::ERROR_OTP_EXPIRED]);
+            }
             return $this->redirect('otp');
         }
 
@@ -587,6 +662,9 @@ class OtpController extends BaseController
             'created_at' => $this->timestampToDateString($createdAt)
         ]);
         $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+        if ($isAjax) {
+            return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC, 'redirect' => './']);
+        }
         return $this->redirect('./');
     }
 }

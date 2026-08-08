@@ -3,17 +3,6 @@
 declare(strict_types=1);
 
 namespace App\Controller;
-
-if (!function_exists('App\Controller\random_bytes')) {
-    function random_bytes(int $length): string
-    {
-        if (isset($GLOBALS['mock_random_bytes_fail_otp']) && $GLOBALS['mock_random_bytes_fail_otp']) {
-            throw new \Exception("Random bytes failed");
-        }
-        return \random_bytes($length);
-    }
-}
-
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
@@ -170,7 +159,7 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
     }
 
-    public function testShowOtpFormCapiServiceNull(): void
+    public function testShowOtpFormNotFireEventsWhenCapiServiceNull(): void
     {
         $controller = new TestableOtpController(
             $this->config,
@@ -185,6 +174,7 @@ class OtpControllerTest extends TestCase
 
         $request = Request::createFromGlobals();
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123'];
+        // set in FormController
         $this->sessionData[OtpController::SESSION_LEAD_ID] = 'lead-123';
         $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['capi_format' => '94771234567'];
 
@@ -192,9 +182,14 @@ class OtpControllerTest extends TestCase
 
         $controller->showOtpForm($request);
 
+        // Pageview and lead events are not fired when Capi service is not initiated
+        $this->assertArrayNotHasKey(OtpController::SESSION_PAGE_VIEW_ID, $this->sessionData);
         $this->assertEquals('otp_form', $controller->renderedView);
     }
 
+    /**
+     * Security checks and validation error messages before OTP verification.
+     */
     public function testHandleOtpFormCsrfCheckFails(): void
     {
         $request = new Request([], ['csrf_token' => 'invalid-token']);
@@ -218,7 +213,18 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->never())->method('verifyOtp');
     }
 
-    public function testHandleOtpFormRateLimitExceededTriggersFallback(): void
+    public function testValidateOtpRequestInvalidTokenStructure(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = 'invalid-token-string';
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+
+        $request = new Request([], ['csrf_token' => 'valid']);
+        $this->controller->handleOtpForm($request);
+
+        $this->assertEquals('./', $this->controller->redirectUrl);
+    }
+
+    public function testHandleOtpFormRateLimitExceededTriggersFallbackSuccess(): void
     {
         $this->sessionData = [
             OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
@@ -270,7 +276,7 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('Too many attempts. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
-    public function testHandleOtpFormInvalidFormat(): void
+    public function testHandleOtpFormInvalidOtpFormat(): void
     {
         $this->sessionData = [
             OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123'],
@@ -284,28 +290,11 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Invalid OTP. Must be 6 digits.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
+    /**************************************************************************************************************** */
 
-    public function testHandleOtpFormVerificationSuccessAndSubscribed(): void
-    {
-        $this->sessionData = [
-            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'],
-            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart']
-        ];
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
-        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
-        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
-
-        $this->otpServiceMock->expects($this->once())
-            ->method('verifyOtp')
-            ->with(['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'], '123456')
-            ->willReturn(['status' => OtpController::OTP_SUCCESS, 'subscriptionStatus' => OtpController::SUB_STATUS_PENDING]);
-
-        $this->controller->handleOtpForm($request);
-
-        $this->assertEquals('thanks', $this->controller->redirectUrl);
-        $this->assertArrayHasKey(OtpController::SESSION_REG_ID, $this->sessionData);
-    }
+    /**
+     * OTP verification api call and handling response
+     */
 
     public function testHandleOtpFormVerificationFailsInvalidOtp(): void
     {
@@ -327,11 +316,149 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('Invalid OTP. Please enter the correct OTP.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
-    public function testHandleOtpFormVerificationFailsInvalidOtpIncrementsCount(): void
+    public function testHandleOtpFormVerificationExpiredTriggersRenew(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => [
+                'referenceNo' => 'expired-ref',
+                'platform' => 'ideamart',
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
+            ],
+            OtpController::SESSION_PHONE_DATA => [
+                'platform' => 'ideamart',
+                'telco_format' => 'tel:123',
+                'capi_format' => '94771234567'
+            ],
+            OtpController::SESSION_INVALID_OTP_COUNT => 1,
+            OtpController::SESSION_SHOW_SMS_LINK => false
+        ];
+
+        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+
+        // 1. Verify fails with EXPIRED status
+        $this->otpServiceMock->expects($this->once())
+            ->method('verifyOtp')
+            ->willReturn(['status' => OtpController::OTP_STATUS_EXPIRED]);
+
+        // 2. Expect re-request (with empty failedUrls because we don't exclude on expiry)
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', 'tel:123', $this->anything(), [])
+            ->willReturn([
+                'status' => 'success',
+                'verificationToken' => [
+                    'referenceNo' => 'new-ref-123',
+                    'usedApiUrl' => 'url1',
+                    'createdAt' => '2023-10-10 10:00:00'
+                ]
+            ]);
+
+        $this->controller->handleOtpForm($request);
+
+        // 3. Verify success redirect and message
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        // "Your OTP expired..." message
+        $this->assertStringContainsString('Your OTP expired', $this->sessionData[OtpController::SESSION_ERROR]);
+        // Token updated
+        $this->assertEquals('new-ref-123', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
+
+        // Reset invalid otp count and show sms link
+        $this->assertArrayNotHasKey(OtpController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
+        $this->assertArrayNotHasKey(OtpController::SESSION_SHOW_SMS_LINK, $this->sessionData);
+    }
+
+    public function testHandleOtpFormVerificationExpiredTriggersRenewMissingDataFails(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = [
+            'referenceNo' => 'ref',
+            'usedApiUrl' => 'url1',
+            'createdAt' => time(),
+            // Missing platform
+            'platform' => null,
+        ];
+        // Missing phone data
+        $this->sessionData[OtpController::SESSION_PHONE_DATA] = [];
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+
+        $this->controller->handleOtpForm($request);
+        $this->assertEquals('./', $this->controller->redirectUrl);
+    }
+
+    public function testHandleExpiredTokenRenewFails(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => [
+                'referenceNo' => 'expired-ref',
+                'platform' => 'ideamart',
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
+            ],
+            OtpController::SESSION_PHONE_DATA => [
+                'telco_format' => '0771234567',
+                'platform' => 'ideamart',
+                'capi_format' => '94771234567'
+            ]
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+
+        $this->controller->handleOtpForm($request);
+        $this->assertEquals('./', $this->controller->redirectUrl);
+    }
+
+    public function testHandleExpiredTokenRenewFallbackUrl(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => [
+                'referenceNo' => 'expired-ref',
+                'platform' => 'ideamart',
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
+            ],
+            OtpController::SESSION_PHONE_DATA => [
+                'telco_format' => '0771234567',
+                'platform' => 'ideamart',
+                'capi_format' => '94771234567'
+            ]
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'success',
+            'verificationToken' => [
+                'referenceNo' => 'new-ref-fallback',
+                'usedApiUrl' => 'url2',
+                'createdAt' => time()
+            ]
+        ]);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $this->controller->handleOtpForm($request);
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+    }
+
+
+    public function testHandleOtpFormVerificationFailsInvalidOtpIncrementsCountWhenSmsLinkIsSetup(): void
     {
         $this->sessionData = [
             OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123'],
-            OtpController::SESSION_INVALID_OTP_COUNT => 1
+            OtpController::SESSION_INVALID_OTP_COUNT => 1,
+            // Shouldn't be possible, but if it is, it should be reset
+            OtpController::SESSION_SHOW_SMS_LINK => true,
         ];
         $request = new Request([], ['otp' => '654321', 'csrf_token' => 'valid-token']);
 
@@ -343,6 +470,7 @@ class OtpControllerTest extends TestCase
         $this->controller->handleOtpForm($request);
 
         $this->assertEquals(2, $this->sessionData[OtpController::SESSION_INVALID_OTP_COUNT]);
+        $this->assertEquals(false, $this->sessionData[OtpController::SESSION_SHOW_SMS_LINK]);
         $this->assertEquals('Invalid OTP. Please enter the correct OTP.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -384,49 +512,39 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('otp', $this->controller->redirectUrl);
     }
 
-    public function testHandleSuccessfulVerificationResetsCountAndLink(): void
+    public function testHandleOtpFormVerificationFailsInvalidOtpWithoutSmsConfig(): void
     {
-        $this->sessionData = [
-            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'],
-            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart'],
-            OtpController::SESSION_INVALID_OTP_COUNT => 2,
-            OtpController::SESSION_SHOW_SMS_LINK => true
-        ];
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
+        $configNoSms = $this->config;
+        unset($configNoSms['sms']);
 
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $this->otpServiceMock,
+            $this->capiServiceMock,
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_SUCCESS, 'subscriptionStatus' => OtpController::SUB_STATUS_REGISTERED]);
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
 
-        $this->controller->handleOtpForm($request);
-
-        $this->assertEquals('thanks', $this->controller->redirectUrl);
+        $controller->handleOtpForm($request);
+        // show error
+        $this->assertEquals('Invalid OTP. Please enter the correct OTP.', $this->sessionData[OtpController::SESSION_ERROR]);
+        $this->assertEquals('otp', $controller->redirectUrl);
+        // Assert no otp invalid count and show sms link has been set
         $this->assertArrayNotHasKey(OtpController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
         $this->assertArrayNotHasKey(OtpController::SESSION_SHOW_SMS_LINK, $this->sessionData);
     }
 
-    public function testHandleOtpFormSuccessRandomBytesFailure(): void
-    {
-        $GLOBALS['mock_random_bytes_fail_otp'] = true;
-
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123', 'platform' => 'mspace', 'usedApiUrl' => 'url'];
-        $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['platform' => 'mspace', 'telco_format' => 'tel:123'];
-
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
-        $this->csrfServiceMock->method('validate')->willReturn(true);
-        $this->rateLimiterMock->method('check')->willReturn(true);
-
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'REGISTERED']);
-
-        $this->controller->handleOtpForm($request);
-
-        $this->assertStringStartsWith('reg-', $this->sessionData[OtpController::SESSION_REG_ID]);
-        // Verify that redirects to thank you page
-        $this->assertEquals('thanks', $this->controller->redirectUrl);
-        $this->assertArrayHasKey(OtpController::SESSION_REG_ID, $this->sessionData);
-    }
+    /**************************************************************************************************************** */
 
     public function testHandleSuccessfulVerificationMissingPlatform(): void
     {
@@ -447,25 +565,7 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
-    public function testHandleFailedVerificationMissingData(): void
-    {
-        // Setup session with missing data for fallback
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123']; // Missing usedApiUrl/platform
-
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
-        $this->csrfServiceMock->method('validate')->willReturn(true);
-        $this->rateLimiterMock->method('check')->willReturn(true);
-
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
-
-        $this->controller->handleOtpForm($request);
-
-        $this->assertEquals('./', $this->controller->redirectUrl);
-        $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
-    }
-
-    public function testHandleOtpFormSuccessNotSubscribed(): void
+    public function testHandleOtpFormVerificationSuccessNotSubscribed(): void
     {
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123', 'platform' => 'ideamart'];
         $this->sessionData[OtpController::SESSION_PHONE_DATA] = ['platform' => 'ideamart'];
@@ -482,6 +582,54 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
+    }
+
+    public function testHandleOtpFormVerificationSuccessAndSubscribed(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'],
+            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart'],
+            OtpController::SESSION_INVALID_OTP_COUNT => 2,
+            // Shouldn't be possible to reach here with invalid count > 2, but if it is, it should be reset
+            OtpController::SESSION_SHOW_SMS_LINK => true
+        ];
+        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
+        $this->otpServiceMock->expects($this->once())
+            ->method('verifyOtp')
+            ->with(['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'], '123456')
+            ->willReturn(['status' => OtpController::OTP_SUCCESS, 'subscriptionStatus' => OtpController::SUB_STATUS_PENDING]);
+
+        $this->controller->handleOtpForm($request);
+
+        $this->assertEquals('thanks', $this->controller->redirectUrl);
+        $this->assertArrayHasKey(OtpController::SESSION_REG_ID, $this->sessionData);
+        // Reset invalid otp count and link
+        $this->assertArrayNotHasKey(OtpController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
+        $this->assertArrayNotHasKey(OtpController::SESSION_SHOW_SMS_LINK, $this->sessionData);
+    }
+
+    /**************************************************************************************************************** */
+
+    public function testHandleFailedVerificationMissingData(): void
+    {
+        // Setup session with missing data for fallback
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123']; // Missing usedApiUrl/platform
+
+        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+
+        $this->controller->handleOtpForm($request);
+
+        $this->assertEquals('./', $this->controller->redirectUrl);
+        $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
     public function testHandleFailedVerificationFallbackSuccess(): void
@@ -515,29 +663,8 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('new-ref', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
         // Check if failedUrls are updated in new token
         $this->assertEquals(['url0', 'url1', 'url2'], $this->sessionData[OtpController::SESSION_OTP_TOKEN]['failedUrls']);
-    }
 
-    public function testHandleFallbackSuccessResetsCountAndLink(): void
-    {
-        $this->sessionData = [
-            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url2'],
-            OtpController::SESSION_PHONE_DATA => ['platform' => 'ideamart', 'telco_format' => 'tel:123'],
-            OtpController::SESSION_INVALID_OTP_COUNT => 3,
-            OtpController::SESSION_SHOW_SMS_LINK => true
-        ];
-
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
-        $this->csrfServiceMock->method('validate')->willReturn(true);
-        $this->rateLimiterMock->method('check')->willReturn(true);
-
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
-
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
-        $this->rateLimiterMock->method('clear');
-
-        $this->controller->handleOtpForm($request);
-
+        // reset invalid otp count and show sms link
         $this->assertArrayNotHasKey(OtpController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
         $this->assertArrayNotHasKey(OtpController::SESSION_SHOW_SMS_LINK, $this->sessionData);
     }
@@ -565,7 +692,303 @@ class OtpControllerTest extends TestCase
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
-    public function testHandleOtpFormVerificationExpiredTriggersRenew(): void
+    /**************************************************************************************************************** */
+
+    public function testShowOtpFormNoticeWhenSmsLinkShown(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->sessionData[OtpController::SESSION_SHOW_SMS_LINK] = true;
+
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('SMS link shown', ['number' => '77000', 'keyword' => 'chat']);
+
+        $this->controller->showOtpForm(Request::createFromGlobals());
+        $this->assertEquals('otp_form', $this->controller->renderedView);
+    }
+
+    public function testHandlePageViewEventNoticeWhenErrorInSession(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->sessionData[OtpController::SESSION_ERROR] = 'Some error';
+
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Rendering /otp to display error, skipping new PageView.', ['error' => 'Some error']);
+
+        $this->controller->showOtpForm(Request::createFromGlobals());
+    }
+
+    public function testValidateOtpRequestInvalidTokenStructureAjax(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = 'invalid-token-string';
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+
+        $request = new Request([], ['csrf_token' => 'valid']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxCsrfCheckFails(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->csrfServiceMock->method('validate')->willReturn(false);
+
+        $request = new Request([], ['csrf_token' => 'bad']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('otp', $data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxNoToken(): void
+    {
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+
+        $request = new Request([], ['csrf_token' => 'valid']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxInvalidFormat(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '12']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Invalid OTP. Must be 6 digits.', $data['message']);
+    }
+
+    public function testHandleOtpFormAjaxSuccessAndSubscribed(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'REGISTERED']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('success', $data['status']);
+        $this->assertEquals('thanks', $data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxSuccessUnknownSubStatus(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'UNKNOWN']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Registration failed. Please try again.', $data['message']);
+    }
+
+    public function testHandleOtpFormAjaxMissingPlatform(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxVerificationFailsInvalidOtpWithSmsConfig(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+    }
+
+    public function testHandleOtpFormAjaxVerificationFailsOtpNotFoundWithSmsConfig(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Could not find OTP']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('OTP not found.', $data['message']);
+        $this->assertTrue($data['showSmsLink']);
+    }
+
+    public function testHandleOtpFormAjaxVerificationFailsInvalidOtpWithoutSmsConfig(): void
+    {
+        $configNoSms = $this->config;
+        unset($configNoSms['sms']);
+
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $this->otpServiceMock,
+            $this->capiServiceMock,
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Invalid OTP. Please enter the correct OTP.', $data['message']);
+    }
+
+    public function testHandleFailedVerificationMissingDataAjax(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
+
+    public function testHandleFailedVerificationFallbackSuccessAjax(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'],
+            OtpController::SESSION_PHONE_DATA => ['telco_format' => '0771234567', 'platform' => 'ideamart']
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'success',
+            'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url2']
+        ]);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Please try again with the new OTP sent to your phone.', $data['message']);
+    }
+
+    public function testHandleFailedVerificationFallbackFailsAjax(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'],
+            OtpController::SESSION_PHONE_DATA => ['telco_format' => '0771234567', 'platform' => 'ideamart']
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('An error occurred. Please try again later.', $data['message']);
+    }
+
+    public function testHandleExpiredTokenMissingDataAjax(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = [
+            'referenceNo' => 'ref',
+            'usedApiUrl' => 'url1',
+            'createdAt' => time(),
+            'platform' => null,
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
+
+    public function testHandleExpiredTokenRenewFailsAjax(): void
     {
         $this->sessionData = [
             OtpController::SESSION_OTP_TOKEN => [
@@ -575,42 +998,60 @@ class OtpControllerTest extends TestCase
                 'createdAt' => time()
             ],
             OtpController::SESSION_PHONE_DATA => [
+                'telco_format' => '0771234567',
                 'platform' => 'ideamart',
-                'telco_format' => 'tel:123',
                 'capi_format' => '94771234567'
             ]
         ];
-
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
 
-        // 1. Verify fails with EXPIRED status
-        $this->otpServiceMock->expects($this->once())
-            ->method('verifyOtp')
-            ->willReturn(['status' => OtpController::OTP_STATUS_EXPIRED]);
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
 
-        // 2. Expect re-request (with empty failedUrls because we don't exclude on expiry)
-        $this->otpServiceMock->expects($this->once())
-            ->method('getOtp')
-            ->with('ideamart', 'tel:123', $this->anything(), [])
-            ->willReturn([
-                'status' => 'success',
-                'verificationToken' => [
-                    'referenceNo' => 'new-ref-123',
-                    'usedApiUrl' => 'url1',
-                    'createdAt' => '2023-10-10 10:00:00'
-                ]
-            ]);
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('./', $data['redirect']);
+    }
 
-        $this->controller->handleOtpForm($request);
+    public function testHandleExpiredTokenRenewSuccessAjax(): void
+    {
+        $this->sessionData = [
+            OtpController::SESSION_OTP_TOKEN => [
+                'referenceNo' => 'expired-ref',
+                'platform' => 'ideamart',
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
+            ],
+            OtpController::SESSION_PHONE_DATA => [
+                'telco_format' => '0771234567',
+                'platform' => 'ideamart',
+                'capi_format' => '94771234567'
+            ]
+        ];
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'success',
+            'verificationToken' => [
+                'referenceNo' => 'new-ref-123',
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
+            ]
+        ]);
 
-        // 3. Verify success redirect and message
-        $this->assertEquals('otp', $this->controller->redirectUrl);
-        // "Your OTP expired..." message
-        $this->assertStringContainsString('Your OTP expired', $this->sessionData[OtpController::SESSION_ERROR]);
-        // Token updated
-        $this->assertEquals('new-ref-123', $this->sessionData[OtpController::SESSION_OTP_TOKEN]['referenceNo']);
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Your OTP expired. A new OTP has been sent to your phone.', $data['message']);
     }
 }

@@ -31,9 +31,9 @@ class Validator
         $countryCodeDigits = $config['country_code'];
         
         // 1. Validate format
-        // Sri Lanka: 07XXXXXXXX (10 digits)
+        // Sri Lanka: starting with 07 (10 digits) or 7 (9 digits)
         // Bangladesh: 01XXXXXXXXX (11 digits)
-        $pattern = ($countryCode === 'LK') ? '/^07\d{8}$/' : '/^01\d{9}$/';
+        $pattern = ($countryCode === 'LK') ? '/^(?:07|7)\d{8}$/' : '/^01\d{9}$/';
         
         if (!preg_match($pattern, $rawPhone)) {
             $logger?->warning("Validation failed: Phone number format mismatch.", ['raw_phone' => $rawPhone]);

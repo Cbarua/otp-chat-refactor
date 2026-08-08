@@ -7,7 +7,16 @@ class MockApiController
 
     public function __construct()
     {
-        $this->logFile = __DIR__ . '/../../logs/mock_api.log';
+        if (isset($_COOKIE['TEST_LOG_DIR']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+            $testClass = $_COOKIE['TEST_CLASS_NAME'] ?? 'UnknownTest';
+            $dir = $_COOKIE['TEST_LOG_DIR'] . '/' . $testClass;
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
+            }
+            $this->logFile = $dir . '/mock_api.log';
+        } else {
+            $this->logFile = __DIR__ . '/../../logs/mock_api.log';
+        }
     }
 
     public function handleRequest(string $gateway, string $action): void
@@ -19,7 +28,7 @@ class MockApiController
         if ($action === 'getOtp') {
             $this->handleGetOtp($gateway, $this->requestInput);
         } elseif ($action === 'verifyOtp') {
-            $this->handleVerifyOtp($this->requestInput);
+            $this->handleVerifyOtp($this->requestInput, $gateway);
         } else {
             $this->sendResponse(404, ['status' => 'error', 'message' => 'Action not found']);
         }
@@ -29,6 +38,7 @@ class MockApiController
     {
         // Dynamic Gateway Logic
         // If gateway name contains "fail" (case-insensitive), simulate failure.
+        // If gateway name contains "testapi" (case-insensitive), send the response to the test API.
         // Otherwise, simulate success.
 
         if (stripos($gateway, 'fail') !== false) {
@@ -36,6 +46,20 @@ class MockApiController
                 'statusCode' => 'E1000',
                 'statusDetail' => 'Mock API Error (Simulated Failure for ' . $gateway . ')'
             ]);
+        } elseif (stripos($gateway, 'testapi') !== false) {
+            // send to the test API
+            $url = 'http://telco.api/otp/request';
+            $input = ['applicationId' => 'APP_12345',
+                'password' => 'PASS_12345',
+                'version' => '1.0'
+            ] + $input;
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($input));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            $response = curl_exec($ch);
+            curl_close($ch);
+            $this->sendResponse(200, json_decode($response, true));
         } else {
             $this->sendResponse(200, [
                 'statusCode' => 'S1000',
@@ -45,9 +69,30 @@ class MockApiController
         }
     }
 
-    private function handleVerifyOtp(array $input): void
+    private function handleVerifyOtp(array $input, string $gateway = ''): void
     {
         $otp = $input['otp'] ?? '';
+
+        if (stripos($gateway, 'testapi') !== false) {
+            // send to the test API
+            $url = 'http://telco.api/otp/verify';
+            $input = ['applicationId' => 'APP_12345',
+                'password' => 'PASS_12345',
+                'version' => '1.0'
+            ] + $input;
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($input));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            $response = curl_exec($ch);
+
+            // old otp api use this to set status
+            $responseArray = json_decode($response, true);
+            $statusCode = $responseArray['statusCode'] ?? '';
+            $responseArray['status'] = $statusCode === 'S1000' ? 'success' : $responseArray['statusDetail'];
+            curl_close($ch);
+            $this->sendResponse(200, $responseArray);
+        }
 
         if ($otp === '999999') {
             $this->sendResponse(200, [

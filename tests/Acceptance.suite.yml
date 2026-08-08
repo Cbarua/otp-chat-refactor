@@ -10,7 +10,7 @@ modules:
         #     url: http://localhost/otp-chat-refactor/public/
         - WebDriver:
             # The URL of your application under test
-            url: http://localhost/otp-chat-refactor/public/
+            url: http://localhost:8080/
             
             # The host and port where msedgedriver is running
             host: 127.0.0.1

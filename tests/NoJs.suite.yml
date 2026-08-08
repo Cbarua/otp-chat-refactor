@@ -1,0 +1,12 @@
+# Codeception NoJs Test Suite Configuration
+#
+# Perform tests with JavaScript disabled by emulating a browser using PhpBrowser.
+# Since PhpBrowser does not support JavaScript execution, all forms will submit
+# via standard POST requests and pages will load synchronously via HTML redirections.
+
+actor: NoJsTester
+modules:
+    enabled:
+        - PhpBrowser:
+            url: http://localhost:8080/
+        - Asserts

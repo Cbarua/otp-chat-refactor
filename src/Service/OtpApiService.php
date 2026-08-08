@@ -138,9 +138,10 @@ class OtpApiService implements OtpApiInterface
         ];
 
         $response = $this->sendRequest($url, $payload);
+        $responseStatus = $response['status'] ?? 'error';
 
         // That's how it is set up in the app for now
-        if (($response['status'] ?? null) === 'success') {
+        if ($responseStatus === 'success') {
             return [
                 'status' => 'success',
                 'subscriptionStatus' => $response['subscriptionStatus'] ?? null,
@@ -149,7 +150,7 @@ class OtpApiService implements OtpApiInterface
         }
 
         return [
-            'status' => $response['status'] ?? 'error',
+            'status' => $responseStatus,
             'originalResponse' => $response
         ];
     }
@@ -162,9 +163,24 @@ class OtpApiService implements OtpApiInterface
         try {
             $this->logger->info('Sending API request', ['url' => $url, 'payload' => $payload]);
 
-            $response = $this->client->request('POST', $url, [
+            $options = [
                 'json' => $payload
-            ]);
+            ];
+
+            // Forward test environment cookies to Mock API if present
+            $cookies = [];
+            foreach (['TEST_LOG_DIR', 'TEST_CLASS_NAME', 'APP_ENV'] as $cookieName) {
+                if (isset($_COOKIE[$cookieName])) {
+                    $cookies[] = "{$cookieName}=" . rawurlencode($_COOKIE[$cookieName]);
+                }
+            }
+            if (!empty($cookies)) {
+                $options['headers'] = [
+                    'Cookie' => implode('; ', $cookies)
+                ];
+            }
+
+            $response = $this->client->request('POST', $url, $options);
 
             $body = $response->getBody()->getContents();
             $decodedBody = json_decode($body, true);

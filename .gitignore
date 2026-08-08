@@ -25,3 +25,4 @@ Thumbs.db
 
 .phpunit.result.cache
 coverage-report/
+/webdriver/

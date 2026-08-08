@@ -30,6 +30,13 @@ class ValidatorTest extends TestCase
         $this->assertGreaterThanOrEqual(0.015, $phoneData['value']);
         $this->assertLessThanOrEqual(0.02, $phoneData['value']);
 
+        // Test a 'Dialog' number starting with '7' (9 digits total)
+        $phoneData = Validator::normalizePhone('771234567', $this->carrierConfig, 'LK', $this->loggerMock);
+        $this->assertIsArray($phoneData);
+        $this->assertEquals('tel:94771234567', $phoneData['telco_format']);
+        $this->assertEquals('94771234567', $phoneData['capi_format']);
+        $this->assertEquals('ideamart', $phoneData['platform']);
+
         // Test a 'Airtel' number (Default range: 0.015 to 0.02)
         $phoneData = Validator::normalizePhone('0751234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertIsArray($phoneData);

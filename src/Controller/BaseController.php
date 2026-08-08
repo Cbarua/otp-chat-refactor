@@ -5,9 +5,21 @@ namespace App\Controller;
 
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\JsonResponse;
 
 abstract class BaseController
 {
+    /**
+     * Returns a JsonResponse.
+     *
+     * @param array $data
+     * @param int $status
+     * @return JsonResponse
+     */
+    protected function json(array $data, int $status = 200): JsonResponse
+    {
+        return new JsonResponse($data, $status);
+    }
     /**
      * Renders a view template and returns it as a Response object.
      *

@@ -5,9 +5,13 @@
 $requestUri = $_SERVER['REQUEST_URI'];
 $scriptName = $_SERVER['SCRIPT_NAME'];
 
-// Remove the script path (e.g., /otp-chat-refactor/public/backend-test-api/index.php) to get the relative path
-$basePath = dirname($scriptName);
-$relativePath = str_replace($basePath, '', $requestUri);
+if (stripos($requestUri, '/backend-test-api') !== false) {
+    // Remove the script path (e.g., /otp-chat-refactor/public/backend-test-api/index.php) to get the relative path
+    $basePath = dirname($scriptName);
+    $relativePath = str_replace($basePath, '', $requestUri);
+} else {
+    $relativePath = $requestUri;
+}
 
 // Clean up query strings
 $path = parse_url($relativePath, PHP_URL_PATH);

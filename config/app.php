@@ -52,14 +52,38 @@ $safeJsonDecode = function ($key) {
 // Get cookie value
 $disableSmsFallback = isset($_COOKIE['DISABLE_SMS_FALLBACK']) && $_COOKIE['DISABLE_SMS_FALLBACK'] === 'true';
 
+$ideamartUrls = $safeJsonDecode('IDEAMART_URLS');
+if (isset($_COOKIE['TEST_IDEAMART_URLS']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+    $decodedUrls = json_decode(rawurldecode($_COOKIE['TEST_IDEAMART_URLS']), true);
+    if (json_last_error() === JSON_ERROR_NONE) {
+        $ideamartUrls = $decodedUrls;
+    }
+}
+
 // 4. Return Configuration Array
+$appLogDir = $_ENV['APP_LOG_DIR'] ?? __DIR__ . "/../logs/app";
+$capiLogDir = $_ENV['CAPI_LOG_DIR'] ?? __DIR__ . "/../logs/capi";
+$appFilename = 'app.log';
+$capiFilename = 'capi.log';
+
+if (isset($_COOKIE['TEST_LOG_DIR']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+    $testLogDir = $_COOKIE['TEST_LOG_DIR'];
+    $testClass = $_COOKIE['TEST_CLASS_NAME'] ?? 'UnknownTest';
+    $appLogDir = $testLogDir . '/' . $testClass;
+    $capiLogDir = $testLogDir . '/' . $testClass;
+    $appFilename = 'app.log';
+    $capiFilename = 'capi.log';
+}
+
 return [
     'env' => $_ENV['APP_ENV'] ?? 'development',
 
     'log_path' => [
         'error' => $errorLogPath,
-        'app_dir' => $_ENV['APP_LOG_DIR'] ?? __DIR__ . "/../logs/app",
-        'capi_dir' => $_ENV['CAPI_LOG_DIR'] ?? __DIR__ . "/../logs/capi",
+        'app_dir' => $appLogDir,
+        'capi_dir' => $capiLogDir,
+        'app_filename' => $appFilename,
+        'capi_filename' => $capiFilename,
     ],
 
     'db' => [
@@ -67,7 +91,7 @@ return [
     ],
 
     'api' => [
-        'ideamart' => $safeJsonDecode('IDEAMART_URLS'),
+        'ideamart' => $ideamartUrls,
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
     ],

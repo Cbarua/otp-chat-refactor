@@ -4,8 +4,13 @@
             "App\\": "src/"
         }
     },
+    "config": {
+        "platform": {
+            "php": "8.4.23"
+        }
+    },
     "require": {
-        "php": ">=8.3.0",
+        "php": ">=8.4.0",
         "vlucas/phpdotenv": "^5.6",
         "facebook/php-business-sdk": "^23.0",
         "guzzlehttp/guzzle": "^7.10",
@@ -29,21 +34,19 @@
         }
     },
     "scripts": {
-        "test:acceptanceWithDriver": [
-            "echo 'Starting Edge WebDriver on port 10888...'",
-            "start /B C:\\webdriver\\msedgedriver.exe --port=10888",
-            "echo 'Waiting 5 seconds for driver to initialize...'",
-            "powershell -Command \"Start-Sleep -Seconds 5\"",
-            "echo 'Running Codeception tests...'",
-            "vendor/bin/codecept run Acceptance",
-            "echo 'Stopping WebDriver...'",
-            "taskkill /IM msedgedriver.exe /F"
-        ],
-        "dev:edgedriver": "C:\\webdriver\\msedgedriver.exe --port=10888",
-        "test:acceptance": "vendor/bin/codecept run Acceptance",
+        "test:ac": "php scripts/run-acceptance.php",
+        "dev:wd": "C:\\webdriver\\msedgedriver.exe --port=10888",
+        "dev:wdln": "./webdriver/msedgedriver --port=10888",
+        "dev:mockapi": "php -S localhost:8081 ./public/backend-test-api/index.php",
+        "dev:frontend": "php -S localhost:8080 -t public",
+        "test:acceptance": "vendor/bin/codecept run Acceptance,NoJs",
         "test:unit": "vendor/bin/phpunit --display-all-issues --testdox",
-        "test:coverage": "set \"XDEBUG_MODE=coverage\" && .\\vendor\\bin\\phpunit --display-all-issues --testdox --coverage-html coverage-report",
-        "test:stop": "taskkill /IM msedgedriver.exe /F",
+        "test:coverage": [
+            "@putenv XDEBUG_MODE=coverage",
+            "vendor/bin/phpunit --display-all-issues --testdox --coverage-html coverage-report"
+        ],
+        "dev:stwd": "taskkill /IM msedgedriver.exe /F",
+        "dev:stwdln": "pkill -f msedgedriver || true",
         "install:production": "composer install --no-dev --optimize-autoloader"
     }
 }

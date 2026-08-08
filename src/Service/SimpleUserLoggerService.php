@@ -119,10 +119,15 @@ class SimpleUserLoggerService implements UserLoggerInterface
             $stmt->bindValue(':phone', $phoneNumber, SQLITE3_TEXT);
             $stmt->bindValue(':ua', $userAgent, SQLITE3_TEXT);
 
-            $stmt->execute();
-
-        } catch (Exception $e) {
-            $this->logger->error("SimpleUserLoggerService logVisit Error", ['error' => $e->getMessage()]);
+            $result = @$stmt->execute();
+            if ($result === false) {
+                $this->logger->error("SimpleUserLoggerService logVisit Error", [
+                    'error' => $this->db->lastErrorMsg(),
+                    'code' => $this->db->lastErrorCode()
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error("SimpleUserLoggerService logVisit Exception", ['error' => $e->getMessage()]);
         }
     }
 
