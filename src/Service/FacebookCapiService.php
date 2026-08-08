@@ -32,7 +32,7 @@ class FacebookCapiService
         $this->logger = $logger;
 
         if (empty($this->pixelId) || empty($accessToken)) {
-            $this->logger->error('FacebookCapiService: Pixel ID or Access Token is missing.');
+            $this->logger->error('CAPI: Pixel ID or Access Token is missing.');
             return;
         }
 
@@ -40,7 +40,7 @@ class FacebookCapiService
             Api::init(null, null, $accessToken);
             $this->apiInitialized = true;
         } catch (Exception $e) {
-            $this->logger->error('FacebookCapiService Init Error', [
+            $this->logger->error('CAPI: Init Error', [
                 'error' => $e->getMessage()
             ]);
         }
@@ -139,7 +139,7 @@ class FacebookCapiService
         ?array $customData = null
     ): ?array {
         if (!$this->apiInitialized) {
-            $this->logger->error("CAPI Error: sendEvent called but API not initialized.");
+            $this->logger->error("CAPI: sendEvent called but API not initialized.");
             return null;
         }
 
@@ -177,7 +177,7 @@ class FacebookCapiService
             $decoded = json_decode($response, true);
 
             // Log CAPI response
-            $this->logger->info("CAPI Event Sent", [
+            $this->logger->info("CAPI: Event Sent", [
                 'event_name' => $eventName,
                 'event_id' => $eventId,
                 'url' => $eventSourceUrl,
@@ -188,7 +188,7 @@ class FacebookCapiService
             return $decoded;
 
         } catch (Exception $e) {
-            $this->logger->error("CAPI SendEvent Error", [
+            $this->logger->error("CAPI: SendEvent Failed", [
                 'event_name' => $eventName,
                 'event_id' => $eventId,
                 'error' => $e->getMessage()

@@ -115,7 +115,7 @@ class EnrichingUserLoggerServiceTest extends TestCase
         $property = $reflection->getProperty('db');
         $property->setValue($service, $dbMock);
 
-        $this->loggerMock->expects($this->once())->method('error')->with($this->stringContains('logVisit Error'));
+        $this->loggerMock->expects($this->once())->method('error')->with($this->stringContains('logVisit Failed'));
 
         $service->logVisit('v1', '127.0.0.1', 'UA');
     }

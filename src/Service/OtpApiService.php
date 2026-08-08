@@ -170,12 +170,12 @@ class OtpApiService implements OtpApiInterface
             $decodedBody = json_decode($body, true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
-                $this->logger->critical("OTP Service Error: Invalid JSON response from API", ['body' => $body]);
+                $this->logger->critical("Invalid JSON response from API", ['body' => $body]);
                 return ['status' => 'error', 'message' => 'Invalid JSON response from API'];
             }
 
-            if (!is_array($decodedBody)) {
-                $this->logger->critical("OTP Service Error: API response is not an array", ['body' => $body, 'decoded' => $decodedBody]);
+            if (!\is_array($decodedBody)) {
+                $this->logger->critical("API response is not an array", ['body' => $body, 'decoded' => $decodedBody]);
                 return ['status' => 'error', 'message' => 'Unexpected API response format'];
             }
 
@@ -194,7 +194,7 @@ class OtpApiService implements OtpApiInterface
                 'detail' => $e->getMessage()
             ];
         } catch (\Exception $e) {
-            $this->logger->critical("OTP Service System Error", [
+            $this->logger->critical("OTP System Error", [
                 'url' => $url,
                 'error' => $e->getMessage()
             ]);

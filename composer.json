@@ -41,8 +41,8 @@
         ],
         "dev:edgedriver": "C:\\webdriver\\msedgedriver.exe --port=10888",
         "test:acceptance": "vendor/bin/codecept run Acceptance",
-        "test:unit": "vendor/bin/phpunit --display-deprecations --display-notices --display-warnings --testdox",
-        "test:coverage": "set \"XDEBUG_MODE=coverage\" && .\\vendor\\bin\\phpunit --coverage-html coverage-report",
+        "test:unit": "vendor/bin/phpunit --display-all-issues --testdox",
+        "test:coverage": "set \"XDEBUG_MODE=coverage\" && .\\vendor\\bin\\phpunit --display-all-issues --testdox --coverage-html coverage-report",
         "test:stop": "taskkill /IM msedgedriver.exe /F",
         "install:production": "composer install --no-dev --optimize-autoloader"
     }

@@ -123,8 +123,9 @@ class FormController extends BaseController
         $userInfo = $this->userInfoService->get($request);
 
         // 0. Validate CSRF Token
-        if (!$this->csrfService->validate($request->request->get('csrf_token'))) {
-            $this->logger->warning('CSRF token validation failed on phone form submission.', $userInfo);
+        $csrfToken = $request->request->get('csrf_token');
+        if (!$this->csrfService->validate($csrfToken)) {
+            $this->logger->warning('CSRF token validation failed on phone form submission.', ['csrf_token' => $csrfToken, ...$userInfo]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
             return $this->redirect('./');
         }
@@ -156,22 +157,22 @@ class FormController extends BaseController
         $this->session->set(self::SESSION_FBC, $request->request->get('fbc'));
 
         // 4. Request OTP from the API. The service now handles platform-specific endpoints.
-
         // Check if we have a valid recent OTP for this number to avoid redundant calls
         $existingToken = $this->session->get(self::SESSION_OTP_TOKEN);
         $existingPhoneData = $this->session->get(self::SESSION_PHONE_DATA);
 
         // Check if phone matches and token is valid (less than 5 minutes old)
-        if (
-            is_array($existingToken) &&
-            is_array($existingPhoneData) &&
-            ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? '') &&
-            isset($existingToken['createdAt']) &&
-            (time() - $existingToken['createdAt'] < 300) // 5 minutes validity
-        ) {
+        $isSameFormat = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
+        $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
+        $tokenAge = time() - $tokenCreatedAt;
+        $isRecent = $tokenAge < 300;
+
+        if ($isSameFormat && $isRecent) {
             $this->logger->notice('Reusing existing valid OTP token', [
                 'phone' => $phoneData['capi_format'],
-                'age' => time() - $existingToken['createdAt']
+                'created_at' => $this->timestampToDateString($tokenCreatedAt),
+                'now' => $this->timestampToDateString(time()),
+                'age' => $tokenAge
             ]);
             // Skip API call and reuse existing flow
             return $this->redirect('otp');
@@ -189,7 +190,7 @@ class FormController extends BaseController
      */
     private function trackVisit(Request $request): void
     {
-        $isInitialVisit = !$this->session->has(self::SESSION_ALREADY_REGISTERED) && !$this->session->has(self::SESSION_ERROR);
+        $isInitialVisit = !($this->session->has(self::SESSION_ALREADY_REGISTERED) ||$this->session->has(self::SESSION_ERROR));
 
         $userInfo = $this->userInfoService->get($request);
         $this->logger->info('New page visit. /', $userInfo);
@@ -211,7 +212,7 @@ class FormController extends BaseController
         // Only fire a new PageView for initial visit or already registered error.
         // Skip if there is any other error (Invalid Phone, Rate Limit, CSRF, Generic).
         if ($this->session->has(self::SESSION_ERROR)) {
-            $this->logger->info('Skipping new PageView event due to session error.', ['error' => $this->session->get(self::SESSION_ERROR)]);
+            $this->logger->notice('Rendering / to display error, skipping new PageView.', ['error' => $this->session->get(self::SESSION_ERROR)]);
             return;
         }
 
@@ -260,7 +261,7 @@ class FormController extends BaseController
         );
         $this->logger->info('New PageView triggered. /', [
             'page_view_id' => $pageViewEventId,
-            'has_phone_for_matching' => !empty($phoneForMatching)
+            'phone_for_matching' => $phoneForMatching
         ]);
     }
 
@@ -304,8 +305,8 @@ class FormController extends BaseController
             $this->logger->notice("User already registered on $scope of the services for this platform.", [
                 'platform' => $phoneData['platform'],
                 'phone' => $phoneData['capi_format'],
-                'already_registered_urls' => $alreadyRegisteredUrls,
-                'final_url' => $response['finalUrl'] ?? null,
+                'already_registered_apps' => $this->getAppNamesFromUrls($alreadyRegisteredUrls),
+                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
             ]);
 
         // Check statusDetail for "temporary system error"
@@ -317,8 +318,7 @@ class FormController extends BaseController
                 $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
                 $this->logger->error('Temporary system error encountered', [
                     'platform' => $phoneData['platform'],
-                    'final_url' => $response['finalUrl'] ?? null,
-                    'final_response' => $response['finalResponse'] ?? null
+                    'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
                 ]);
                 return $this->redirect('./');
             }
@@ -330,7 +330,7 @@ class FormController extends BaseController
             $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
             $this->logger->notice('Temporary system error encountered, showing SMS fallback link.', [
                 'platform' => $phoneData['platform'],
-                'final_url' => $response['finalUrl'] ?? null,
+                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
             ]);
             return $this->redirect('otp');
         } else {
@@ -342,17 +342,5 @@ class FormController extends BaseController
             ]);
         }
         return $this->redirect('./');
-    }
-
-    /**
-     * Generates a random ID with a given prefix.
-     */
-    private function generateRandomId(string $prefix): string
-    {
-        try {
-            return $prefix . bin2hex(random_bytes(16));
-        } catch (\Exception $e) {
-            return $prefix . uniqid();
-        }
     }
 }

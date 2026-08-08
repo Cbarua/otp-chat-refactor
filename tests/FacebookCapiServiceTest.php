@@ -58,11 +58,11 @@ class FacebookCapiServiceTest extends TestCase
         // 2. Set Expectations
         $this->mockLogger->shouldReceive('error')
             ->once()
-            ->with('FacebookCapiService: Pixel ID or Access Token is missing.');
+            ->with('CAPI: Pixel ID or Access Token is missing.');
 
         $this->mockLogger->shouldReceive('error')
             ->once()
-            ->with('CAPI Error: sendEvent called but API not initialized.');
+            ->with('CAPI: sendEvent called but API not initialized.');
 
         // 3. Act
         $service = new FacebookCapiService($badConfig, $this->mockLogger);
@@ -93,7 +93,7 @@ class FacebookCapiServiceTest extends TestCase
 
         $this->mockLogger->shouldReceive('error')
             ->once()
-            ->with('FacebookCapiService Init Error', Mockery::on(function ($context) {
+            ->with('CAPI: Init Error', Mockery::on(function ($context) {
                 return $context['error'] === 'Facebook SDK Down';
             }));
 
@@ -169,7 +169,7 @@ class FacebookCapiServiceTest extends TestCase
         $this->mockLogger->shouldNotReceive('error');
         $this->mockLogger->shouldReceive('info')
             ->once()
-            ->with('CAPI Event Sent', Mockery::on(function ($context) use ($mockFbResponse) {
+            ->with('CAPI: Event Sent', Mockery::on(function ($context) use ($mockFbResponse) {
                 return $context['event_name'] === 'Purchase' &&
                     $context['event_id'] === 'evt_purchase' &&
                     $context['response'] === json_decode($mockFbResponse, true);
@@ -210,7 +210,7 @@ class FacebookCapiServiceTest extends TestCase
         // 2. Mock Logger
         $this->mockLogger->shouldReceive('error')
             ->once()
-            ->with('CAPI SendEvent Error', Mockery::on(function ($context) {
+            ->with('CAPI: SendEvent Failed', Mockery::on(function ($context) {
                 return $context['event_id'] === 'evt_fail' &&
                     $context['error'] === 'Facebook API Down';
             }));

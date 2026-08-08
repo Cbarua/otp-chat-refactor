@@ -154,7 +154,7 @@ class OtpController extends BaseController
         $token = $this->session->get(self::SESSION_OTP_TOKEN);
         $visitorId = $this->session->get('visitor_id', 'unknown');
 
-        if (!$this->checkRateLimit($visitorId)) {
+        if ($this->isRateLimitExceeded($visitorId)) {
             return $this->handleFailedVerification($request, $token, true);
         }
 
@@ -163,14 +163,15 @@ class OtpController extends BaseController
 
     private function validateOtpRequest(Request $request): ?Response
     {
-        if (!$this->csrfService->validate($request->request->get('csrf_token'))) {
-            $this->logger->warning('CSRF token validation failed on OTP form submission.');
+        $csrfToken = $request->request->get('csrf_token');
+        if (!$this->csrfService->validate($csrfToken)) {
+            $this->logger->warning('CSRF token validation failed on OTP form submission.', ['csrf_token' => $csrfToken]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
             return $this->redirect('otp');
         }
 
         if (!$this->session->has(self::SESSION_OTP_TOKEN)) {
-            $this->logger->error('OTP submission without a valid token.');
+            $this->logger->error('OTP submission without a token.');
             return $this->redirect('./');
         }
 
@@ -211,10 +212,10 @@ class OtpController extends BaseController
 
     private function handlePageViewEvent(Request $request, array $userInfo): void
     {
-        $isErrorRedirect = $this->session->has(self::SESSION_ERROR);
+        $errorMessage = $this->session->get(self::SESSION_ERROR);
 
         // Trigger PageView only if it's not a redirect showing an error
-        if (!$isErrorRedirect) {
+        if (!isset($errorMessage)) {
             $pageViewEventId = $this->generateRandomId('pgview-otp-');
             $this->session->set(self::SESSION_PAGE_VIEW_ID, $pageViewEventId);
 
@@ -242,7 +243,7 @@ class OtpController extends BaseController
             $this->capiService->sendEvent('PageView', $pageViewEventId, $request->getUri(), $userDataArray);
             $this->logger->info('New PageView triggered. /otp', ['page_view_id' => $pageViewEventId]);
         } else {
-            $this->logger->info('Rendering /otp to display error, skipping new PageView.', ['error' => $this->session->get(self::SESSION_ERROR)]);
+            $this->logger->notice('Rendering /otp to display error, skipping new PageView.', ['error' => $errorMessage]);
         }
     }
 
@@ -272,13 +273,14 @@ class OtpController extends BaseController
                 'country' => 'lk'
             ];
 
+            $leadId = $this->session->get(self::SESSION_LEAD_ID);
             $this->capiService->sendEvent(
                 'Lead',
-                $this->session->get(self::SESSION_LEAD_ID),
+                $leadId,
                 $request->getUri(),
                 $userDataArray
             );
-            $this->logger->info('Lead event triggered.', ['lead_id' => $this->session->get(self::SESSION_LEAD_ID)]);
+            $this->logger->info('Lead event triggered.', ['lead_id' => $leadId]);
             // Unset lead event id after data for view is prepared
         }
     }
@@ -298,6 +300,8 @@ class OtpController extends BaseController
             return $this->handleExpiredToken($request, $token);
         }
 
+        $appName = $this->getAppNamesFromUrls([$token['usedApiUrl'] ?? ''])[0];
+
         // If SMS config is set, show sms link
         // Backward compatibility
         if (!empty($this->config['sms']['number']) && !empty($this->config['sms']['keyword'])) {
@@ -308,8 +312,18 @@ class OtpController extends BaseController
 
                 if ($count >= 3) {
                     $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+                    $this->logger->notice('3 invalid OTP attempts, showing SMS fallback link.', [
+                        'invalid_otp_count' => $count,
+                        'app' => $appName,
+                        'response' => $response,
+                    ]);
                 } else {
                     $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
+                    $this->logger->notice('Invalid OTP attempt.', [
+                        'invalid_otp_count' => $count,
+                        'app' => $appName,
+                        'response' => $response,
+                    ]);
                 }
 
                 return $this->redirect('otp');
@@ -317,18 +331,26 @@ class OtpController extends BaseController
 
             if (($response['status'] ?? null) === self::OTP_NOT_FOUND) {
                 $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+                $this->logger->notice('OTP not found, showing SMS fallback link.', [
+                    'app' => $appName,
+                    'response' => $response,
+                ]);
                 return $this->redirect('otp');
             }
         }
 
         if (($response['status'] ?? null) === self::OTP_INVALID) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_INVALID);
+            $this->logger->notice('Invalid OTP attempt.', [
+                'app' => $appName,
+                'response' => $response,
+            ]);
             return $this->redirect('otp');
         }
 
         // For all other errors, log the failure and attempt to use a fallback API
-        $this->logger->error('OTP verification failed with an unexpected status.', [
-            'status' => $response['status'] ?? 'N/A',
+        $this->logger->critical('OTP verification failed with an unexpected status.', [
+            'app' => $this->getAppNamesFromUrls([$token['usedApiUrl'] ?? ''])[0],
             'response' => $response,
         ]);
         return $this->handleFailedVerification($request, $token);
@@ -351,6 +373,7 @@ class OtpController extends BaseController
             true
         );
 
+        // mspace platform has a magic pass because of legacy code
         if ($isSubscribed || $platform === self::PLATFORM_MSPACE) {
             $regId = $this->generateRandomId('reg-');
             $this->session->set(self::SESSION_REG_ID, $regId);
@@ -360,6 +383,10 @@ class OtpController extends BaseController
             return $this->redirect('thanks');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_REGISTRATION_FAILED);
+            $this->logger->critical('Registration failed. Unexpected Subscription Status', [
+                'platform' => $platform,
+                'response' => $response,
+            ]);
             return $this->redirect('otp');
         }
     }
@@ -378,9 +405,9 @@ class OtpController extends BaseController
 
         if (empty($subscriberId) || empty($platform) || empty($failedUrl)) {
             $this->logger->critical('No fallback possible due to missing data.', [
-                'has_subscriber_id' => !empty($subscriberId),
-                'has_platform' => !empty($platform),
-                'has_failed_url' => !empty($failedUrl)
+                'subscriber_id' => $subscriberId,
+                'platform' => $platform,
+                'failed_url' => $failedUrl
             ]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
             return $this->redirect('./');
@@ -413,6 +440,11 @@ class OtpController extends BaseController
         $userInfo = $this->userInfoService->get($request);
         $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
 
+        $this->logger->notice(
+            'Attempting to get a new OTP from a fallback URL.',
+            ['platform' => $platform, 'subscriber_id' => $subscriberId, 'failed_apps' => $this->getAppNamesFromUrls($allFailedUrls)]
+        );
+
         return $this->otpService->getOtp($platform, $subscriberId, $metaData, $allFailedUrls);
     }
 
@@ -425,13 +457,16 @@ class OtpController extends BaseController
      */
     private function handleFallbackSuccess(array $response, array $allFailedUrls): Response
     {
-        $this->logger->info('Successfully received new OTP from a fallback URL.');
+        $newToken = $response['verificationToken'];
+        $newToken['failedUrls'] = $allFailedUrls;
+
+        $this->logger->info(
+            'Successfully received new OTP from a fallback URL.',
+            ['app' => $this->getAppNamesFromUrls([$newToken['usedApiUrl'] ?? ''])[0]]
+        );
 
         $visitorId = $this->session->get('visitor_id', 'unknown');
         $this->rateLimiter->clear('otp_verification:' . $visitorId);
-
-        $newToken = $response['verificationToken'];
-        $newToken['failedUrls'] = $allFailedUrls;
 
         $this->session->set(self::SESSION_OTP_TOKEN, $newToken);
         $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_NEW);
@@ -451,37 +486,35 @@ class OtpController extends BaseController
      */
     private function handleFallbackFailure(bool $isRateLimit): Response
     {
-        $this->logger->error('All fallback OTP requests failed after a verification error.');
-
         if ($isRateLimit) {
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
         }
 
+        $this->logger->error('All fallback OTP requests failed after a verification error.', [
+            'error' => $this->session->get(self::SESSION_ERROR)
+        ]);
+
         return $this->redirect('otp');
     }
-
-    private function generateRandomId(string $prefix): string
-    {
-        try {
-            return $prefix . bin2hex(random_bytes(16));
-        } catch (\Exception $e) {
-            return $prefix . uniqid();
-        }
-    }
-
-    private function checkRateLimit(string $visitorId): bool
+    /**
+     * Checks if the visitor has exceeded the maximum number of OTP verification attempts.
+     *
+     * @param string $visitorId The ID of the visitor.
+     * @return bool True if the visitor has exceeded the maximum number of attempts, false otherwise.
+     */
+    private function isRateLimitExceeded(string $visitorId): bool
     {
         $rateLimitKey = 'otp_verification:' . $visitorId;
         $maxAttempts = 5;
         $window = 600;
         if ($this->rateLimiter->check($rateLimitKey, $maxAttempts, $window)) {
             $this->rateLimiter->increment($rateLimitKey);
-            return true;
+            return false;
         }
         $this->logger->warning('Rate limit exceeded. ', ['visitor_id' => $visitorId, 'max_attempts' => $maxAttempts, 'window' => $window]);
-        return false;
+        return true;
     }
 
     /**
@@ -493,18 +526,27 @@ class OtpController extends BaseController
      */
     private function handleExpiredToken(Request $request, array $token): Response
     {
-        $this->logger->notice('OTP reference expired during verification. Attempting to get a new one.');
-
+        ['usedApiUrl' => $usedUrl, 'referenceNo' => $refNo, 'createdAt' => $createdAt, 'platform' => $platform] = $token;
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $subscriberId = $phoneData['telco_format'] ?? null;
-        $platform = $token['platform'] ?? $phoneData['platform'] ?? null;
+        $platform ??= $phoneData['platform'] ?? null;
+        $usedApp = $this->getAppNamesFromUrls([$usedUrl])[0];
+
+        $this->logger->notice('OTP reference expired during verification. Attempting to get a new one.', [
+            'reference_no' => $refNo,
+            'created_at' => $this->timestampToDateString($createdAt),
+            'now' => $this->timestampToDateString(time()),
+            'platform' => $platform,
+            'used_app' => $usedApp,
+        ]);
+
         // Do NOT exclude the current URL, as it might just be a token expiry, not a system failure.
         $failedUrls = [];
 
         if (empty($subscriberId) || empty($platform)) {
             $this->logger->critical('Cannot auto-renew expired OTP due to missing data.', [
-                'has_subscriber_id' => !empty($subscriberId),
-                'has_platform' => !empty($platform)
+                'subscriber_id' => $subscriberId,
+                'platform' => $platform
             ]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
             // Critical error, redirect to home page
@@ -514,19 +556,20 @@ class OtpController extends BaseController
         $response = $this->attemptFallback($platform, $subscriberId, $request, $failedUrls);
 
         if (($response['status'] ?? null) === self::OTP_SUCCESS) {
+            $newToken = $response['verificationToken'];
+            $newUrl = $newToken['usedApiUrl'] ?? null;
             $context = [
                 'phone' => $phoneData['capi_format'],
-                'base_url' => $response['verificationToken']['usedApiUrl'],
-                'reference_no' => $response['verificationToken']['referenceNo'],
-                'created_at' => $response['verificationToken']['createdAt']
+                'app' => $this->getAppNamesFromUrls([$newUrl])[0],
+                'reference_no' => $newToken['referenceNo'],
+                'created_at' => $this->timestampToDateString($newToken['createdAt'] ?? 0)
             ];
-            if (($response['verificationToken']['usedApiUrl'] ?? null) === $token['usedApiUrl']) {
+            if ($newUrl === $usedUrl) {
                 $this->logger->notice('Successfully renewed expired OTP.', $context);
             } else {
                 $this->logger->notice('Successfully received new OTP from a fallback URL.', $context);
             }
 
-            $newToken = $response['verificationToken'];
             $this->session->set(self::SESSION_OTP_TOKEN, $newToken);
             $this->session->set(self::SESSION_ERROR, self::ERROR_OTP_EXPIRED);
             
@@ -539,9 +582,9 @@ class OtpController extends BaseController
 
         $this->logger->error('Failed to renew expired OTP and fallback URLs.', [
             'phone' => $phoneData['capi_format'],
-            'base_url' => $token['usedApiUrl'],
-            'old_reference_no' => $token['referenceNo'],
-            'created_at' => $token['createdAt']
+            'used_app' => $usedApp,
+            'reference_no' => $refNo,
+            'created_at' => $this->timestampToDateString($createdAt)
         ]);
         $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
         return $this->redirect('./');

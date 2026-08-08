@@ -103,7 +103,7 @@ class ThankYouController extends BaseController
                     $userDataArray,
                     $customData
                 );
-                $this->logger->info('CompleteRegistration event flag found. Event triggered.', ['reg_id' => $regId]);
+                $this->logger->info('CompleteRegistration event triggered.', ['reg_id' => $regId]);
             }
         }
 
@@ -124,7 +124,7 @@ class ThankYouController extends BaseController
 
         $otpToken = $this->session->get(self::SESSION_OTP_TOKEN);
         $usedUrl = $otpToken['usedApiUrl'] ?? 'unknown';
-        $this->logger->info('Thank You page reached. Conversion successful.', ['url' => $usedUrl]);
+        $this->logger->info('Thank You page reached. Conversion successful.', ['app' => $this->getAppNamesFromUrls([$usedUrl])[0]]);
 
         // 6. Clear session to prevent re-firing
         $this->session->unset(self::SESSION_REG_ID);

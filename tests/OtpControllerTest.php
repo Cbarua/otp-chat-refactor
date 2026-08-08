@@ -234,7 +234,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url1'])
-            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref'], 'usedApiUrl' => 'url2']);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -503,7 +503,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url0', 'url1', 'url2'])
-            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -533,7 +533,7 @@ class OtpControllerTest extends TestCase
 
         $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
 
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref']]);
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
         $this->rateLimiterMock->method('clear');
 
         $this->controller->handleOtpForm($request);
@@ -571,7 +571,8 @@ class OtpControllerTest extends TestCase
             OtpController::SESSION_OTP_TOKEN => [
                 'referenceNo' => 'expired-ref',
                 'platform' => 'ideamart',
-                'usedApiUrl' => 'url1'
+                'usedApiUrl' => 'url1',
+                'createdAt' => time()
             ],
             OtpController::SESSION_PHONE_DATA => [
                 'platform' => 'ideamart',

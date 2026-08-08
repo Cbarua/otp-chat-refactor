@@ -67,7 +67,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
                 throw new Exception("Failed to create logs table: " . $this->db->lastErrorMsg());
             }
         } catch (Exception $e) {
-            $this->logger->error("EnrichingUserLoggerService DB Error", ['error' => $e->getMessage()]);
+            $this->logger->error("EnrichingUserLogger: DB Error", ['error' => $e->getMessage()]);
             $this->db = null;
         }
     }
@@ -84,7 +84,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
     public function logVisit(string $visitorId, string $ip, string $userAgent, ?string $phoneNumber = null): void
     {
         if (!$this->db) {
-            $this->logger->error("EnrichingUserLoggerService: No database connection.");
+            $this->logger->error("EnrichingUserLogger: No database connection.");
             return;
         }
 
@@ -153,7 +153,7 @@ class EnrichingUserLoggerService implements UserLoggerInterface
         } catch (Exception $e) {
             // Something went wrong, roll back
             $this->db?->exec('ROLLBACK');
-            $this->logger->error("EnrichingUserLoggerService logVisit Error", ['error' => $e->getMessage()]);
+            $this->logger->error("EnrichingUserLogger: logVisit Failed", ['error' => $e->getMessage()]);
         }
     }
     
