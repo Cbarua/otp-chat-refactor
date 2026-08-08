@@ -219,6 +219,29 @@ final class OtpFormAjaxCest
         $I->seeElement('#smsLink');
     }
 
+    public function testOtpFormCouldNotFindOtpTriggersRenewalWithoutSmsConfig(AcceptanceTester $I): void
+    {
+        $this->logTestStart($I, 'Test "Could not find OTP" (444444) triggers OTP renewal when SMS config is not set');
+
+        // Disable SMS fallback using cookie
+        $I->setCookie('DISABLE_SMS_FALLBACK', 'true');
+        $_COOKIE['DISABLE_SMS_FALLBACK'] = 'true';
+
+        $this->navigateToOtpForm($I);
+
+        $I->fillField('otp', '444444');
+        $I->click('Verify');
+        $I->wait(3);
+
+        // Should see expired OTP renewal error message instead of SMS fallback link
+        $I->dontSeeElement('#smsLink');
+        $I->see('Your OTP expired. A new OTP has been sent to your phone.', '#otpError');
+
+        // Reset cookie for subsequent tests
+        $I->resetCookie('DISABLE_SMS_FALLBACK');
+        unset($_COOKIE['DISABLE_SMS_FALLBACK']);
+    }
+
     public function testOtpFormExpiredOtpAutoRenewal(AcceptanceTester $I): void
     {
         $this->logTestStart($I, 'Test expired OTP (111111) auto-renewal message. Message do NOT persist when navigating back to phone form (/)');

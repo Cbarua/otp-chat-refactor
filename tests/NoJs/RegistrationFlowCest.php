@@ -431,6 +431,57 @@ final class RegistrationFlowCest
         $I->see(self::ERROR_CSRF, '.alert-danger');
     }
 
+    public function testOtpNotFoundTriggersSmsFallback(NoJsTester $I): void
+    {
+        $this->logTestStart($I, 'Test OTP not found (444444) triggers SMS fallback when SMS config is set');
+
+        $customUrls = json_encode([self::MOCK_URL_TEST_API]);
+        $I->setCookie('TEST_IDEAMART_URLS', rawurlencode($customUrls));
+        $_COOKIE['TEST_IDEAMART_URLS'] = $customUrls;
+
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        $I->seeInCurrentUrl('/otp');
+
+        $I->fillField('otp', '444444');
+        $I->click('Verify');
+
+        $I->seeInCurrentUrl('/otp');
+        $I->seeElement('#smsLink');
+    }
+
+    public function testOtpNotFoundTriggersRenewalWithoutSmsConfig(NoJsTester $I): void
+    {
+        $this->logTestStart($I, 'Test OTP not found (444444) triggers renewal when SMS config is not set (DISABLE_SMS_FALLBACK=true)');
+
+        $customUrls = json_encode([self::MOCK_URL_TEST_API]);
+        $I->setCookie('TEST_IDEAMART_URLS', rawurlencode($customUrls));
+        $_COOKIE['TEST_IDEAMART_URLS'] = $customUrls;
+
+        // Disable SMS fallback using cookie
+        $I->setCookie('DISABLE_SMS_FALLBACK', 'true');
+        $_COOKIE['DISABLE_SMS_FALLBACK'] = 'true';
+
+        $I->amOnPage('/');
+        $I->fillField('mobile', self::MAGIC_PHONE);
+        $I->click('Register');
+
+        $I->seeInCurrentUrl('/otp');
+
+        $I->fillField('otp', '444444');
+        $I->click('Verify');
+
+        $I->seeInCurrentUrl('/otp');
+        $I->see('Your OTP expired. A new OTP has been sent to your phone.', '.alert-danger');
+        $I->dontSeeElement('#smsLink');
+
+        // Reset cookie for subsequent tests
+        $I->resetCookie('DISABLE_SMS_FALLBACK');
+        unset($_COOKIE['DISABLE_SMS_FALLBACK']);
+    }
+
     private function countMockApiRequests(): int
     {
         $files = \Tests\Support\TestLogHelper::getLogFiles('RegistrationFlowCest');

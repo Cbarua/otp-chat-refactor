@@ -390,13 +390,14 @@ class OtpController extends BaseController
                 return $this->json(['status' => 'error', 'message' => self::ERROR_OTP_INVALID]);
             }
             return $this->redirect('otp');
+        } else if ($responseStatus === self::OTP_NOT_FOUND) {
+            $this->logger->notice('OTP not found.', ['app' => $appName, 'response' => $response]);
+            // Get a new otp for the same url or fallback urls.
+            return $this->handleExpiredToken($request, $token);
+        } else {
+            $this->logger->critical('OTP verification failed with an unexpected status.', ['app' => $appName, 'response' => $response]);
+            return $this->handleFailedVerification($request, $token);
         }
-
-        $this->logger->critical('OTP verification failed with an unexpected status.', [
-            'app' => $appName,
-            'response' => $response,
-        ]);
-        return $this->handleFailedVerification($request, $token);
     }
 
     /**
