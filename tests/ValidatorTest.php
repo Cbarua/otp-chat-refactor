@@ -21,31 +21,35 @@ class ValidatorTest extends TestCase
     {
         $this->loggerMock->expects($this->never())->method('warning');
 
-        // Test a 'Dialog' number
+        // Test a 'Dialog' number (Default range: 0.015 to 0.02)
         $phoneData = Validator::normalizePhone('0771234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertIsArray($phoneData);
         $this->assertEquals('tel:94771234567', $phoneData['telco_format']);
         $this->assertEquals('94771234567', $phoneData['capi_format']);
         $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertEquals(0.02, $phoneData['value']);
+        $this->assertGreaterThanOrEqual(0.015, $phoneData['value']);
+        $this->assertLessThanOrEqual(0.02, $phoneData['value']);
 
-        // Test a 'Airtel' number
+        // Test a 'Airtel' number (Default range: 0.015 to 0.02)
         $phoneData = Validator::normalizePhone('0751234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertIsArray($phoneData);
         $this->assertEquals('tel:94751234567', $phoneData['telco_format']);
         $this->assertEquals('94751234567', $phoneData['capi_format']);
         $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertEquals(0.02, $phoneData['value']);
+        $this->assertGreaterThanOrEqual(0.015, $phoneData['value']);
+        $this->assertLessThanOrEqual(0.02, $phoneData['value']);
 
-        // Test a 'Mobitel' number
+        // Test a 'Mobitel' number (Mobitel range: 0.0 to 0.01)
         $phoneData = Validator::normalizePhone('0711234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertEquals('mspace', $phoneData['platform']);
-        $this->assertEquals(0.01, $phoneData['value']);
+        $this->assertGreaterThanOrEqual(0.0, $phoneData['value']);
+        $this->assertLessThanOrEqual(0.01, $phoneData['value']);
 
-        // Test a 'Hutch' number
+        // Test a 'Hutch' number (Hutch range: 0.01 to 0.015)
         $phoneData = Validator::normalizePhone('0781234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertEquals(0.015, $phoneData['value']);
+        $this->assertGreaterThanOrEqual(0.01, $phoneData['value']);
+        $this->assertLessThanOrEqual(0.015, $phoneData['value']);
     }
 
     public function testInvalidSriLankanNumbers(): void

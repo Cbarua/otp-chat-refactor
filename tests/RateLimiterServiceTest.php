@@ -136,7 +136,6 @@ class RateLimiterServiceTest extends TestCase
         // Access private property $db using Reflection
         $reflection = new \ReflectionClass($this->rateLimiter);
         $property = $reflection->getProperty('db');
-        $property->setAccessible(true);
         $db = $property->getValue($this->rateLimiter);
 
         $resetAt = $db->querySingle("SELECT reset_at FROM rate_limits WHERE key = '$key'");
@@ -151,7 +150,6 @@ class RateLimiterServiceTest extends TestCase
         // Access private property $db using Reflection
         $reflection = new \ReflectionClass($this->rateLimiter);
         $property = $reflection->getProperty('db');
-        $property->setAccessible(true);
         $db = $property->getValue($this->rateLimiter);
 
         // 1. Verify WAL Mode
@@ -172,7 +170,6 @@ class RateLimiterServiceTest extends TestCase
         // Verify it exists
         $reflection = new \ReflectionClass($this->rateLimiter);
         $property = $reflection->getProperty('db');
-        $property->setAccessible(true);
         $db = $property->getValue($this->rateLimiter);
 
         $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");

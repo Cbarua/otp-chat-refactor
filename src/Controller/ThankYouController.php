@@ -77,10 +77,6 @@ class ThankYouController extends BaseController
             $pageViewEventId = "pgview-thanks-" . uniqid();
             $this->session->set('page_view_id_thanks', $pageViewEventId);
 
-            $this->logger->info('New PageView triggered. /thanks', [
-                'page_view_id' => $pageViewEventId
-            ]);
-
             // Fire the PageView CAPI event
             $this->capiService->sendEvent(
                 'PageView',
@@ -88,6 +84,9 @@ class ThankYouController extends BaseController
                 $request->getUri(),
                 $userDataArray
             );
+            $this->logger->info('New PageView triggered. /thanks', [
+                'page_view_id' => $pageViewEventId
+            ]);
 
             // Fire "CompleteRegistration" CAPI Event
             if (!empty($regId) && !empty($phoneForMatching)) {
@@ -97,8 +96,6 @@ class ThankYouController extends BaseController
                     'value' => $phoneData['value'] ?? '0.01' // FB Capi needs a value
                 ];
 
-                $this->logger->info('CompleteRegistration event flag found. Firing CAPI + Pixel.');
-
                 $this->capiService->sendEvent(
                     'CompleteRegistration',
                     $regId,
@@ -106,6 +103,7 @@ class ThankYouController extends BaseController
                     $userDataArray,
                     $customData
                 );
+                $this->logger->info('CompleteRegistration event flag found. Event triggered.', ['reg_id' => $regId]);
             }
         }
 

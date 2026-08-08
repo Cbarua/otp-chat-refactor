@@ -169,7 +169,7 @@ class FormController extends BaseController
             isset($existingToken['createdAt']) &&
             (time() - $existingToken['createdAt'] < 300) // 5 minutes validity
         ) {
-            $this->logger->info('Reusing existing valid OTP token', [
+            $this->logger->notice('Reusing existing valid OTP token', [
                 'phone' => $phoneData['capi_format'],
                 'age' => time() - $existingToken['createdAt']
             ]);
@@ -252,17 +252,16 @@ class FormController extends BaseController
             $userDataArray['country'] = 'lk';
         }
 
-        $this->logger->info('New PageView triggered. /', [
-            'page_view_id' => $pageViewEventId,
-            'has_phone_for_matching' => !is_null($phoneForMatching)
-        ]);
-
         $this->capiService->sendEvent(
             'PageView',
             $pageViewEventId,
             $request->getUri(),
             $userDataArray
         );
+        $this->logger->info('New PageView triggered. /', [
+            'page_view_id' => $pageViewEventId,
+            'has_phone_for_matching' => !empty($phoneForMatching)
+        ]);
     }
 
     /**

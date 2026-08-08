@@ -65,7 +65,7 @@ class OtpApiService implements OtpApiInterface
             $response = $this->sendRequest($url, $payload);
 
             if (($response['statusCode'] ?? null) === 'S1000') {
-                $this->logger->info('OTP request successful.', ['base_url' => $baseUrl]);
+                $this->logger->info('OTP request successful.', ['base_url' => $baseUrl, 'response' => $response]);
 
                 // Return a structured success response with the token
                 return [

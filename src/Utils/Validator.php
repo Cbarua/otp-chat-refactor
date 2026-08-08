@@ -47,7 +47,15 @@ class Validator
         $prefix = substr($normalized, 0, 2); // 77
 
         // 3. Determine platform
-        $platform = $config['platform_map'][$prefix] ?? $config['platform_default'];
+        // carrier exists -> 70, 71, 72, 74, 75, 76, 77, 78
+        // carrier do not exists -> 73, 79
+        $platform = $config['platform_map'][$prefix] ?? null;
+
+        // Fix: Requested ApplicationID is not allowed within the System for operator unknown.
+        if (empty($platform)) {
+            $logger?->warning("Validation failed: Unsupported carrier.", ['normalized_phone' => $normalized]);
+            return null;
+        }
 
         // 4. Determine conversion value
         $value = $config['values']['default'];

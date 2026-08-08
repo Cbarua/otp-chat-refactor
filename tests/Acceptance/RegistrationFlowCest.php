@@ -296,6 +296,40 @@ final class RegistrationFlowCest
         );
     }
 
+    public function testCarrierSpecificPhoneValidation(AcceptanceTester $I)
+    {
+        $this->logTestStart($I, 'Test the carrier-specific phone validation');
+        $I->amOnPage('/');
+
+        // First we enter a valid format but unsupported carrier (e.g., 0731234567)
+        // Submit an invalid phone number
+        $I->fillField('mobile', '0731234567');
+        $I->click('Register');
+
+        // Assert we are redirected back to /
+        $I->seeInCurrentUrl('/');
+
+        // Assert we see the SERVER-SIDE error message about unsupported carrier
+        $I->see(
+            'Invalid phone number. Example: 0771234567',
+            '.alert-danger'
+        );
+
+        // Assert we are still on the home page
+        $I->seeInCurrentUrl('/');
+        $I->dontSee('PIN අංකය ඇතුළත් කරන්න');
+
+        // Now we enter a valid format AND supported carrier (e.g., 0771234567)
+        $I->fillField('mobile', '0771234567');
+        $I->click('Register');
+
+        // Wait for page load
+        $I->wait(5);
+
+        // Should be on OTP page
+        $I->seeInCurrentUrl('/otp');
+    }
+
     public function testInvalidOtp(AcceptanceTester $I)
     {
         $this->logTestStart($I, 'Test a failed (non-magic) OTP submission');

@@ -575,7 +575,8 @@ class OtpControllerTest extends TestCase
             ],
             OtpController::SESSION_PHONE_DATA => [
                 'platform' => 'ideamart',
-                'telco_format' => 'tel:123'
+                'telco_format' => 'tel:123',
+                'capi_format' => '94771234567'
             ]
         ];
 
@@ -595,7 +596,11 @@ class OtpControllerTest extends TestCase
             ->with('ideamart', 'tel:123', $this->anything(), [])
             ->willReturn([
                 'status' => 'success',
-                'verificationToken' => ['referenceNo' => 'new-ref-123']
+                'verificationToken' => [
+                    'referenceNo' => 'new-ref-123',
+                    'usedApiUrl' => 'url1',
+                    'createdAt' => '2023-10-10 10:00:00'
+                ]
             ]);
 
         $this->controller->handleOtpForm($request);

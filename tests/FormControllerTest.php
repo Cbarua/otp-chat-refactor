@@ -271,6 +271,21 @@ class FormControllerTest extends TestCase
         $this->assertEquals('Invalid phone number. Example: 0771234567', $this->sessionData[FormController::SESSION_ERROR]);
     }
 
+    public function testHandlePhoneFormUnsupportedCarrier(): void
+    {
+        $request = new Request([], ['mobile' => '0731234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('check')->willReturn(true);
+
+        $this->userLoggerMock->expects($this->never())->method('logVisit');
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('./', $this->controller->redirectUrl);
+        $this->assertEquals('Invalid phone number. Example: 0771234567', $this->sessionData[FormController::SESSION_ERROR]);
+    }
+
     public function testHandlePhoneFormValidNumberOtpSuccess(): void
     {
         $request = new Request([], [

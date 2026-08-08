@@ -109,7 +109,6 @@ class SimpleUserLoggerServiceTest extends TestCase
         // Access private property $db using Reflection
         $reflection = new \ReflectionClass($service);
         $property = $reflection->getProperty('db');
-        $property->setAccessible(true);
         $db = $property->getValue($service);
 
         // 1. Verify WAL Mode
