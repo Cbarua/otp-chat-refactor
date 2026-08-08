@@ -443,7 +443,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('otp', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 
@@ -461,7 +461,7 @@ class OtpControllerTest extends TestCase
 
         $this->controller->handleOtpForm($request);
 
-        $this->assertEquals('otp', $this->controller->redirectUrl);
+        $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[OtpController::SESSION_ERROR]);
     }
 

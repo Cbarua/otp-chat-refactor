@@ -36,8 +36,8 @@ class OtpApiService implements OtpApiInterface
     {
         $allBaseUrls = $this->apiConfig[$platform] ?? [];
         if (empty($allBaseUrls)) {
-            $this->logger->error('No API URLs configured for platform.', ['platform' => $platform]);
-            return ['status' => 'error', 'message' => 'Configuration error for platform.'];
+            $this->logger->critical('No API URLs configured for platform.', ['platform' => $platform]);
+            return ['status' => 'error', 'message' => 'Url not found for platform.'];
         }
 
         // Filter out any URLs that should be excluded for this attempt
@@ -52,6 +52,8 @@ class OtpApiService implements OtpApiInterface
 
         $lastResponse = [];
         $failedUrls = [];
+        $failedAttempts = [];
+
         foreach ($baseUrls as $baseUrl) {
             $url = rtrim($baseUrl, '/') . '/getOtp.php';
 
@@ -61,7 +63,6 @@ class OtpApiService implements OtpApiInterface
             ];
 
             $response = $this->sendRequest($url, $payload);
-            $lastResponse = $response; // Always store the last response
 
             if (($response['statusCode'] ?? null) === 'S1000') {
                 $this->logger->info('OTP request successful.', ['base_url' => $baseUrl]);
@@ -69,7 +70,6 @@ class OtpApiService implements OtpApiInterface
                 // Return a structured success response with the token
                 return [
                     'status' => 'success',
-                    'referenceNo' => $response['referenceNo'],
                     'verificationToken' => [
                         'referenceNo' => $response['referenceNo'],
                         'usedApiUrl' => $baseUrl,
@@ -79,14 +79,15 @@ class OtpApiService implements OtpApiInterface
                     ],
                     'originalResponse' => $response
                 ];
-            } elseif (strpos($lastResponse['statusDetail'] ?? '', 'Temporary System Error') !== false) {
-                return [
-                    'status' => 'Temporary System Error',
-                    'message' => $lastResponse['statusDetail'] ?? 'Temporary system error encountered.',
-                    'base_url' => $baseUrl,
-                    'originalResponse' => $lastResponse
-                ];
             }
+
+            $lastResponse = $response; // Always store the last response
+
+            // Capture failure details
+            $failedAttempts[] = [
+                'base_url' => $baseUrl,
+                'response' => $response
+            ];
 
             $this->logger->warning('OTP request to URL failed, trying next if available.', [
                 'base_url' => $baseUrl,
@@ -96,9 +97,9 @@ class OtpApiService implements OtpApiInterface
         }
 
         // If the loop completes, all URLs have failed.
-        $this->logger->error('All OTP request URLs failed for subscriber.', [
+        $this->logger->warning('All OTP request URLs failed for subscriber.', [
             'subscriberId' => $subscriberId,
-            'last_response' => $lastResponse
+            'final_response' => $lastResponse
         ]);
 
         // Return the last failure with details
@@ -106,7 +107,9 @@ class OtpApiService implements OtpApiInterface
             'status' => 'error',
             'statusCode' => $lastResponse['statusCode'] ?? null,
             'statusDetail' => $lastResponse['statusDetail'] ?? null,
-            'originalResponse' => $lastResponse
+            'failedAttempts' => $failedAttempts,
+            'finalResponse' => $lastResponse,
+            'finalUrl' => $baseUrls[count($baseUrls) - 1]
         ];
     }
 
@@ -123,7 +126,7 @@ class OtpApiService implements OtpApiInterface
         $referenceNo = $verificationToken['referenceNo'] ?? null;
 
         if (!$baseUrl || !$referenceNo) {
-            $this->logger->error('Invalid verification token provided to verifyOtp.', ['token' => $verificationToken]);
+            $this->logger->critical('Invalid verification token provided to verifyOtp.', ['token' => $verificationToken]);
             return ['status' => 'error', 'message' => 'Invalid verification token.'];
         }
 
@@ -167,19 +170,19 @@ class OtpApiService implements OtpApiInterface
             $decodedBody = json_decode($body, true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
-                $this->logger->error("OTP Service Error: Invalid JSON response from API", ['body' => $body]);
+                $this->logger->critical("OTP Service Error: Invalid JSON response from API", ['body' => $body]);
                 return ['status' => 'error', 'message' => 'Invalid JSON response from API'];
             }
 
             if (!is_array($decodedBody)) {
-                $this->logger->error("OTP Service Error: API response is not an array", ['body' => $body, 'decoded' => $decodedBody]);
+                $this->logger->critical("OTP Service Error: API response is not an array", ['body' => $body, 'decoded' => $decodedBody]);
                 return ['status' => 'error', 'message' => 'Unexpected API response format'];
             }
 
             return $decodedBody;
 
         } catch (RequestException $e) {
-            $this->logger->error("OTP API RequestException", [
+            $this->logger->critical("OTP API RequestException", [
                 'url' => $url,
                 'error' => $e->getMessage()
             ]);
@@ -191,7 +194,7 @@ class OtpApiService implements OtpApiInterface
                 'detail' => $e->getMessage()
             ];
         } catch (\Exception $e) {
-            $this->logger->error("OTP Service System Error", [
+            $this->logger->critical("OTP Service System Error", [
                 'url' => $url,
                 'error' => $e->getMessage()
             ]);

@@ -17,7 +17,7 @@ class Validator
      * @param string $rawPhone The phone number from user input.
      * @param array $carrierConfig The carrier config array from config/carriers.php
      * @param string $countryCode The country to validate against (e.g., 'LK', 'BD')
-     * @return array|null Returns structured data or null if invalid.
+     * @return array|null Returns structured data (telco_format, capi_format, platform, value) or null if invalid.
      */
     public static function normalizePhone(string $rawPhone, array $carrierConfig, string $countryCode = 'LK', ?LoggerInterface $logger = null): ?array
     {
@@ -53,7 +53,8 @@ class Validator
         $value = $config['values']['default'];
         foreach ($config['prefixes'] as $carrier => $carrierPrefixes) {
             if (in_array($prefix, $carrierPrefixes)) {
-                $value = $config['values'][$carrier];
+                // disable php warning
+                $value = $config['values'][$carrier] ?? $value;
                 break;
             }
         }

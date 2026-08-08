@@ -52,7 +52,7 @@ class OtpApiServiceTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertEquals('success', $result['status']);
-        $this->assertEquals('12345-abc', $result['referenceNo']);
+        $this->assertEquals('12345-abc', $result['verificationToken']['referenceNo']);
     }
 
     public function testGetOtpFirstUrlFailsThenSecondSucceeds(): void
@@ -68,7 +68,7 @@ class OtpApiServiceTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertEquals('success', $result['status']);
-        $this->assertEquals('67890-def', $result['referenceNo']);
+        $this->assertEquals('67890-def', $result['verificationToken']['referenceNo']);
         $this->assertEquals('https://ideamart.mock/fallback/', $result['verificationToken']['usedApiUrl']);
     }
 
@@ -84,9 +84,10 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('ideamart', 'tel:94771234567', []);
 
         $this->assertEquals('error', $result['status']);
-        // The last error should be from a correctly caught RequestException
-        // The service returns 'statusCode' => null if the last response was an exception
-        $this->assertNull($result['statusCode']);
+        // first api call failed
+        $this->assertEquals('API request failed', $result['failedAttempts'][0]['response']['message']);
+        // second api call failed
+        $this->assertEquals('API request failed', $result['finalResponse']['message']);
     }
 
     public function testGetOtpUnconfiguredPlatform(): void
@@ -98,7 +99,7 @@ class OtpApiServiceTest extends TestCase
 
         $this->assertEquals([
             'status' => 'error',
-            'message' => 'Configuration error for platform.'
+            'message' => 'Url not found for platform.'
         ], $result);
     }
 
@@ -130,7 +131,7 @@ class OtpApiServiceTest extends TestCase
 
         // The service returns the last response structure, which in this case is the error from sendRequest
         $this->assertEquals('error', $result['status']);
-        $this->assertEquals('Invalid JSON response from API', $result['originalResponse']['message']);
+        $this->assertEquals('Invalid JSON response from API', $result['finalResponse']['message']);
     }
 
     public function testRequestThrowsRequestExceptionDuringVerify(): void
@@ -193,7 +194,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('mspace', 'tel:94771234567', []);
 
         $this->assertEquals('error', $result['status']);
-        $this->assertEquals('A system error occurred', $result['originalResponse']['message']);
+        $this->assertEquals('A system error occurred', $result['finalResponse']['message']);
     }
 
     public function testGetOtpReturnsTimestamp(): void

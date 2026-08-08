@@ -32,7 +32,7 @@ class FormController extends BaseController
 
     // API Statuses
     private const API_STATUS_ALREADY_REGISTERED = 'user already registered';
-    private const API_ERROR_TEMPORARY_FAILURE = 'Temporary System Error';
+    private const API_ERROR_TEMPORARY_FAILURE = 'temporary system error';
     private const ALREADY_REGISTERED = 'You are already registered!';
 
     // Error Messages
@@ -120,27 +120,27 @@ class FormController extends BaseController
      */
     public function handlePhoneForm(Request $request): Response
     {
+        $userInfo = $this->userInfoService->get($request);
+
         // 0. Validate CSRF Token
         if (!$this->csrfService->validate($request->request->get('csrf_token'))) {
-            $this->logger->warning('CSRF token validation failed on phone form submission.');
+            $this->logger->warning('CSRF token validation failed on phone form submission.', $userInfo);
             $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
             return $this->redirect('./');
         }
 
-        $userInfo = $this->userInfoService->get($request);
+        $rawPhone = $request->request->get('mobile', '');
+        $this->logger->info('Phone form submitted', ['raw_phone' => $rawPhone, ...$userInfo]);
 
         // 1. Rate Limiting Check
         // Limit: 5 attempts per IP per minute
         $rateLimitKey = 'phone_submission:' . $userInfo['ip'];
         if (!$this->rateLimiter->check($rateLimitKey, 5, 60)) {
-            $this->logger->warning('Rate limit exceeded for phone submission.', ['ip' => $userInfo['ip']]);
+            $this->logger->warning('Rate limit exceeded for phone submission.', ['ip' => $userInfo['ip'], 'raw_phone' => $rawPhone]);
             $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
             return $this->redirect('./');
         }
         $this->rateLimiter->increment($rateLimitKey);
-
-        $rawPhone = $request->request->get('mobile', '');
-        $this->logger->info('Phone form submitted', ['raw_phone' => $rawPhone, 'user_info' => $userInfo]);
 
         // 2. Validate phone number
         $phoneData = Validator::normalizePhone($rawPhone, $this->carrierConfig, 'LK', $this->logger);
@@ -191,9 +191,11 @@ class FormController extends BaseController
     {
         $isInitialVisit = !$this->session->has(self::SESSION_ALREADY_REGISTERED) && !$this->session->has(self::SESSION_ERROR);
 
+        $userInfo = $this->userInfoService->get($request);
+        $this->logger->info('New page visit. /', $userInfo);
+
         // 1. Log the initial anonymous visit to our own DB.
         if ($isInitialVisit) {
-            $userInfo = $this->userInfoService->get($request);
             $this->userLogger->logVisit(
                 $this->session->get(self::SESSION_VISITOR_ID),
                 $userInfo['ip'],
@@ -214,16 +216,11 @@ class FormController extends BaseController
         }
 
         // For all other cases (initial visit, or redirect after "already registered"), fire PageView.
-        try {
-            $pageViewEventId = "pgview-" . bin2hex(random_bytes(16));
-        } catch (\Exception $e) {
-            $pageViewEventId = "pgview-" . uniqid();
-        }
+        $pageViewEventId = $this->generateRandomId("pgview-");
         $this->session->set(self::SESSION_PAGE_VIEW_ID, $pageViewEventId);
 
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $phoneForMatching = $phoneData['capi_format'] ?? null;
-        $userInfo = $this->userInfoService->get($request);
         $visitorId = $this->session->get(self::SESSION_VISITOR_ID);
 
         // processRequest returns array ['fbc' => ..., 'fbp' => ...]
@@ -276,11 +273,7 @@ class FormController extends BaseController
         // Success condition is now based on the 'status' key from our service
         if (($response['status'] ?? null) === 'success') {
             // SUCCESS: OTP was requested.
-            try {
-                $leadId = "lead-" . bin2hex(random_bytes(16));
-            } catch (\Exception $e) {
-                $leadId = "lead-" . uniqid();
-            }
+            $leadId = $this->generateRandomId("lead-");
             $this->session->set(self::SESSION_LEAD_ID, $leadId);
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
             // Store the opaque token for the verification step.
@@ -289,12 +282,35 @@ class FormController extends BaseController
         }
 
         // FAILURE: No URL succeeded.
+        $statusDetail = strtolower($response['statusDetail'] ?? '');
+
         // Check statusDetail for "already registered"
-        if (($response['statusDetail'] ?? null) === self::API_STATUS_ALREADY_REGISTERED) {
+        if ($statusDetail === self::API_STATUS_ALREADY_REGISTERED) {
             $this->session->set(self::SESSION_ALREADY_REGISTERED, self::ALREADY_REGISTERED);
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-            $this->logger->info('User already registered on all available services for this platform.');
-        } elseif (($response['status'] ?? null) === self::API_ERROR_TEMPORARY_FAILURE) {
+
+            // Only log if ALL failed attempts were due to "already registered"
+            $failedAttempts = $response['failedAttempts'] ?? [];
+            $alreadyRegisteredUrls = [];
+            foreach ($failedAttempts as $attempt) {
+                if (($attempt['response']['statusDetail'] ?? '') === self::API_STATUS_ALREADY_REGISTERED) {
+                    $alreadyRegisteredUrls[] = $attempt['url'];
+                }
+            }
+
+            // Scope is "all" if ALL failed attempts were due to "already registered"
+            // added \ before count() for compiler optimization
+            $scope = \count($alreadyRegisteredUrls) === \count($failedAttempts) ? 'all' : 'some';
+
+            $this->logger->notice("User already registered on $scope of the services for this platform.", [
+                'platform' => $phoneData['platform'],
+                'phone' => $phoneData['capi_format'],
+                'already_registered_urls' => $alreadyRegisteredUrls,
+                'final_url' => $response['finalUrl'] ?? null,
+            ]);
+
+        // Check statusDetail for "temporary system error"
+        } elseif (str_contains($statusDetail, self::API_ERROR_TEMPORARY_FAILURE)) {
             $smsNumber = $this->config['sms']['number'] ?? null;
             $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
@@ -302,35 +318,42 @@ class FormController extends BaseController
                 $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
                 $this->logger->error('Temporary system error encountered', [
                     'platform' => $phoneData['platform'],
-                    'base_url' => $response['base_url'] ?? null,
-                    'message' => $response['message'] ?? null,
-                    'original_response' => $response['originalResponse'] ?? null
+                    'final_url' => $response['finalUrl'] ?? null,
+                    'final_response' => $response['finalResponse'] ?? null
                 ]);
                 return $this->redirect('./');
             }
 
-            try {
-                $leadId = "lead-" . bin2hex(random_bytes(16));
-            } catch (\Exception $e) {
-                $leadId = "lead-" . uniqid();
-            }
-
+            $leadId = $this->generateRandomId("lead-");
             $this->session->set(self::SESSION_LEAD_ID, $leadId);
             $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
             $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
             $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
-            $this->logger->info('Temporary system error encountered, showing SMS fallback link.', [
+            $this->logger->notice('Temporary system error encountered, showing SMS fallback link.', [
                 'platform' => $phoneData['platform'],
-                'final_response' => $response
+                'final_url' => $response['finalUrl'] ?? null,
             ]);
             return $this->redirect('otp');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
             $this->logger->error('All OTP request attempts failed for the user.', [
                 'platform' => $phoneData['platform'],
-                'final_response' => $response
+                'phone' => $phoneData['capi_format'],
+                ...$response
             ]);
         }
         return $this->redirect('./');
+    }
+
+    /**
+     * Generates a random ID with a given prefix.
+     */
+    private function generateRandomId(string $prefix): string
+    {
+        try {
+            return $prefix . bin2hex(random_bytes(16));
+        } catch (\Exception $e) {
+            return $prefix . uniqid();
+        }
     }
 }

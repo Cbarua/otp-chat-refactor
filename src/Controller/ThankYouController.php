@@ -51,10 +51,11 @@ class ThankYouController extends BaseController
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $pageViewEventId = null;
         $customData = null;
+        $userInfo = $this->userInfoService->get($request);
+        $this->logger->info('New page visit. /thanks', $userInfo);
 
         if ($this->capiService !== null) {
-            // 2. Get user info for CAPI events
-            $userInfo = $this->userInfoService->get($request);
+            // 2. Get data for CAPI events
             $visitorId = $this->session->get('visitor_id');
             $phoneForMatching = $phoneData['capi_format'] ?? null;
             $fbp = $this->session->get('fbp');

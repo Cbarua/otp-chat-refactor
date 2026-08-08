@@ -37,6 +37,7 @@ class OtpController extends BaseController
     // Error Messages
     private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
     private const ERROR_CSRF = 'Security check failed. Please try again.';
+    private const ERROR_REGISTRATION_FAILED = 'Registration failed. Please try again.';
     private const ERROR_OTP_INVALID_LENGTH = 'Invalid OTP. Must be 6 digits.';
     private const ERROR_OTP_INVALID = 'Invalid OTP. Please enter the correct OTP.';
     private const ERROR_OTP_NEW = 'Please try again with the new OTP sent to your phone.';
@@ -81,11 +82,15 @@ class OtpController extends BaseController
      */
     public function showOtpForm(Request $request): Response
     {
+        $userInfo = $this->userInfoService->get($request);
+
         // Security Check: Ensure user has a token from the previous step.
         if (!$this->session->has(self::SESSION_OTP_TOKEN)) {
-            $this->logger->error('OTP form accessed without a token');
+            $this->logger->error('OTP form accessed without a token', $userInfo);
             return $this->redirect('./');
         }
+
+        $this->logger->info('New page visit. /otp', $userInfo);
 
         if ($this->capiService !== null) {
             // Handles pageview and lead events
@@ -103,7 +108,7 @@ class OtpController extends BaseController
         $showSmsLink = ($smsNumber && $smsKeyword) ? $this->session->get(self::SESSION_SHOW_SMS_LINK, false) : false;
 
         if ($showSmsLink) {
-            $this->logger->info('SMS link shown', [
+            $this->logger->notice('SMS link shown', [
                 'number' => $smsNumber,
                 'keyword' => $smsKeyword,
             ]);
@@ -187,7 +192,9 @@ class OtpController extends BaseController
         $response = $this->otpService->verifyOtp($token, $rawOtp);
         $this->logger->info('OTP verification attempted', [
             'token' => $token,
-            'response' => $response
+            'otp' => $rawOtp,
+            'status' => $response['status'] ?? null,
+            'response' => $response['originalResponse'] ?? null,
         ]);
 
         return $this->handleVerificationResponse($request, $response, $token);
@@ -322,7 +329,7 @@ class OtpController extends BaseController
         }
 
         // For all other errors, log the failure and attempt to use a fallback API
-        $this->logger->warning('OTP verification failed with an unexpected status.', [
+        $this->logger->error('OTP verification failed with an unexpected status.', [
             'status' => $response['status'] ?? 'N/A',
             'response' => $response,
         ]);
@@ -335,12 +342,16 @@ class OtpController extends BaseController
     private function handleSuccessfulVerification(array $response, ?string $platform): Response
     {
         if (!$platform) {
-            $this->logger->error('Could not determine platform for successful verification.');
-            $this->session->set(self::SESSION_ERROR, 'Registration failed. Please try again.');
-            return $this->redirect('otp');
+            $this->logger->critical('Could not determine platform for successful verification.');
+            $this->session->set(self::SESSION_ERROR, self::ERROR_REGISTRATION_FAILED);
+            return $this->redirect('./');
         }
 
-        $isSubscribed = ($response['subscriptionStatus'] ?? null) === self::SUB_STATUS_PENDING || ($response['subscriptionStatus'] ?? null) === self::SUB_STATUS_REGISTERED;
+        $isSubscribed = \in_array(
+            $response['subscriptionStatus'] ?? null, 
+            [self::SUB_STATUS_REGISTERED, self::SUB_STATUS_PENDING], 
+            true
+        );
 
         if ($isSubscribed || $platform === self::PLATFORM_MSPACE) {
             $regId = $this->generateRandomId('reg-');
@@ -350,7 +361,7 @@ class OtpController extends BaseController
             $this->session->unset(self::SESSION_SHOW_SMS_LINK);
             return $this->redirect('thanks');
         } else {
-            $this->session->set(self::SESSION_ERROR, 'Registration failed. Please try again.');
+            $this->session->set(self::SESSION_ERROR, self::ERROR_REGISTRATION_FAILED);
             return $this->redirect('otp');
         }
     }
@@ -368,13 +379,13 @@ class OtpController extends BaseController
         $failedUrl = $token['usedApiUrl'] ?? null;
 
         if (empty($subscriberId) || empty($platform) || empty($failedUrl)) {
-            $this->logger->error('No fallback possible due to missing data.', [
+            $this->logger->critical('No fallback possible due to missing data.', [
                 'has_subscriber_id' => !empty($subscriberId),
                 'has_platform' => !empty($platform),
                 'has_failed_url' => !empty($failedUrl)
             ]);
-            $this->session->set(self::SESSION_ERROR, 'An error occurred. Please try again later.');
-            return $this->redirect('otp');
+            $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
+            return $this->redirect('./');
         }
 
         // Retrieve previously failed URLs from the token and add the current one

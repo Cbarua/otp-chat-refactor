@@ -481,4 +481,61 @@ class FormControllerTest extends TestCase
         // Verify token was updated
         $this->assertEquals('new-ref', $this->sessionData[FormController::SESSION_OTP_TOKEN]['referenceNo']);
     }
+
+    public function testHandlePhoneFormOtpTemporarySystemErrorWithoutSmsFallback(): void
+    {
+        // Default config has no SMS fallback
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Temporary System Error']);
+
+        $this->controller->handlePhoneForm($request);
+
+        // Should return to home with generic error
+        $this->assertEquals('./', $this->controller->redirectUrl);
+        $this->assertEquals('An error occurred. Please try again later.', $this->sessionData[FormController::SESSION_ERROR]);
+    }
+
+    public function testHandlePhoneFormOtpTemporarySystemErrorWithSmsFallback(): void
+    {
+        // Inject config with SMS fallback
+        $configWithSms = $this->config;
+        $configWithSms['sms'] = [
+            'number' => '1234',
+            'keyword' => 'REG'
+        ];
+
+        $controller = new TestableFormController(
+            $configWithSms,
+            $this->carrierConfig,
+            $this->otpServiceMock,
+            $this->userLoggerMock,
+            $this->capiServiceMock,
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Temporary System Error']);
+
+        $controller->handlePhoneForm($request);
+
+        // Should redirect to OTP page
+        $this->assertEquals('otp', $controller->redirectUrl);
+        // Should have set SMS Link flag
+        $this->assertTrue($this->sessionData[FormController::SESSION_SHOW_SMS_LINK]);
+        // Should have set dummy OTP token
+        $this->assertTrue($this->sessionData[FormController::SESSION_OTP_TOKEN]);
+    }
+    }
 }

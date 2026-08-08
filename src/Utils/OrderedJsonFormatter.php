@@ -28,6 +28,9 @@ class OrderedJsonFormatter extends JsonFormatter
             $ordered['datetime'] = $normalized['datetime'];
         }
 
+        // 3. Level Name
+        $ordered['level_name'] = $record->level->getName();
+
         // 3. Message
         if (isset($normalized['message'])) {
             $ordered['message'] = $normalized['message'];
