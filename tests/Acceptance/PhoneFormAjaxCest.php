@@ -169,9 +169,29 @@ final class PhoneFormAjaxCest
         $I->seeElement('#smsLink');
     }
 
-    public function testPhoneFormAjaxMaxOtpRequestsReached(AcceptanceTester $I): void
+    public function testPhoneFormAjaxMaxOtpRequestsWithSmsFallback(AcceptanceTester $I): void
     {
-        $this->logTestStart($I, 'Test AJAX submission when maximum OTP requests reached (0781234560)');
+        $this->logTestStart($I, 'Test AJAX submission when maximum OTP requests reached with SMS fallback (0781234560)');
+        $I->amOnPage('/');
+
+        // 0781234560 maps to E1853 'Maximum number of OTP requests reached'
+        $I->fillField('mobile', '0781234560');
+        $I->click('Register');
+
+        // Redirect happens after 3 seconds
+        $I->wait(6);
+
+        // With SMS configured by default in env.test, routes to /otp with SMS fallback link
+        $I->seeInCurrentUrl('/otp');
+        $I->seeElement('#smsLink');
+    }
+
+    public function testPhoneFormAjaxMaxOtpRequestsWithoutSmsFallback(AcceptanceTester $I): void
+    {
+        $this->logTestStart($I, 'Test AJAX submission when maximum OTP requests reached without SMS fallback');
+        
+        // Disable SMS fallback for this test via cookie
+        $I->setCookie('test_disable_sms', '1');
         $I->amOnPage('/');
 
         // 0781234560 maps to E1853 'Maximum number of OTP requests reached'
@@ -181,12 +201,22 @@ final class PhoneFormAjaxCest
         $I->wait(3);
 
         $I->seeInCurrentUrl('/');
-        $I->see('An error occurred. Please try again later.', '#phoneError');
+        $I->see('Maximum number of OTP requests reached', '#phoneError');
         $I->dontSeeElement('#alreadyRegistered', ['style' => 'display: block;']);
 
         // Submit button should be re-enabled
         $I->dontSeeElement('input[type="submit"][disabled]');
         $I->seeElement('input[type="submit"]', ['value' => 'Register']);
+
+        // Resubmission during 60-minute rate limit window should block before calling API and show remaining time
+        $I->click('Register');
+
+        $I->wait(3);
+
+        $I->seeInCurrentUrl('/');
+        $I->see('Maximum number of OTP requests reached', '#phoneError');
+        $I->see('60 minutes', '#phoneError');
+        $I->dontSeeElement('#alreadyRegistered', ['style' => 'display: block;']);
     }
 
     public function testPhoneFormAjaxAppNotAllowedError(AcceptanceTester $I): void

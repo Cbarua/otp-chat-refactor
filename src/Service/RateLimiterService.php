@@ -151,6 +151,57 @@ class RateLimiterService
         $stmt->execute();
     }
 
+    /**
+     * Blocks a key for a specific duration in seconds.
+     */
+    public function block(string $key, int $durationSeconds): void
+    {
+        if (!$this->db) {
+            return;
+        }
+
+        try {
+            $resetAt = date('Y-m-d H:i:s', time() + $durationSeconds);
+            $stmt = $this->db->prepare("INSERT INTO rate_limits (key, count, reset_at) VALUES (:key, 1, :reset)
+                                        ON CONFLICT(key) DO UPDATE SET count = 1, reset_at = :reset");
+            $stmt->bindValue(':key', $key, SQLITE3_TEXT);
+            $stmt->bindValue(':reset', $resetAt, SQLITE3_TEXT);
+            $stmt->execute();
+        } catch (Exception $e) {
+            $this->logger->error("RateLimiterService Block Error", ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Returns remaining seconds for a blocked or rate-limited key, or 0 if expired/not found.
+     */
+    public function getRemainingSeconds(string $key): int
+    {
+        if (!$this->db) {
+            return 0;
+        }
+
+        try {
+            $stmt = $this->db->prepare("SELECT reset_at FROM rate_limits WHERE key = :key");
+            $stmt->bindValue(':key', $key, SQLITE3_TEXT);
+            $result = $stmt->execute();
+            $row = $result->fetchArray(SQLITE3_ASSOC);
+
+            if (!$row) {
+                return 0;
+            }
+
+            $resetAt = $row['reset_at'];
+            $expiryTime = is_numeric($resetAt) ? (int) $resetAt : strtotime($resetAt);
+            $remaining = $expiryTime - time();
+
+            return max(0, $remaining);
+        } catch (Exception $e) {
+            $this->logger->error("RateLimiterService GetRemainingSeconds Error", ['error' => $e->getMessage()]);
+            return 0;
+        }
+    }
+
     public function __destruct()
     {
         $this->db?->close();

@@ -33,10 +33,12 @@ class FormController extends BaseController
     // API Statuses
     private const API_STATUS_ALREADY_REGISTERED = 'user already registered';
     private const API_ERROR_TEMPORARY_FAILURE = 'temporary system error';
+    private const API_ERROR_MAX_REQUESTS = 'maximum number of otp requests reached';
     private const ALREADY_REGISTERED = 'You are already registered!';
 
     // Error Messages
     private const ERROR_INVALID_PHONE = 'Invalid phone number. Example: 0771234567';
+    private const ERROR_MAX_REQUESTS = 'Maximum number of OTP requests reached for :number. Please try again in :minutes minutes';
     private const ERROR_GENERIC = 'An error occurred. Please try again later.';
     private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
     private const ERROR_CSRF = 'Security check failed. Please try again.';
@@ -162,6 +164,23 @@ class FormController extends BaseController
                 return $this->json(['status' => 'error', 'message' => self::ERROR_INVALID_PHONE]);
             }
             $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_PHONE);
+            return $this->redirect('./');
+        }
+
+        // Check if number is blocked due to Max OTP requests (60 minute block)
+        $remainingSeconds = $this->rateLimiter->getRemainingSeconds('otp_max_requests:' . $phoneData['capi_format']);
+        if ($remainingSeconds > 0) {
+            $remainingMinutes = max(1, (int) ceil($remainingSeconds / 60));
+            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, $remainingMinutes], self::ERROR_MAX_REQUESTS);
+            $this->logger->warning('Phone number blocked due to max OTP requests limit', [
+                'phone' => $phoneData['capi_format'],
+                'remaining_seconds' => $remainingSeconds,
+                'remaining_minutes' => $remainingMinutes
+            ]);
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => $errorMessage]);
+            }
+            $this->session->set(self::SESSION_ERROR, $errorMessage);
             return $this->redirect('./');
         }
 
@@ -341,8 +360,9 @@ class FormController extends BaseController
 
         // Check statusDetail for "temporary system error"
         } elseif (str_contains($statusDetail, self::API_ERROR_TEMPORARY_FAILURE)) {
-            $smsNumber = $this->config['sms']['number'] ?? null;
-            $smsKeyword = $this->config['sms']['keyword'] ?? null;
+            $smsConfig = $this->getSmsConfig($request);
+            $smsNumber = $smsConfig['number'] ?? null;
+            $smsKeyword = $smsConfig['keyword'] ?? null;
 
             if (!($smsNumber && $smsKeyword)) {
                 $this->logger->error('Temporary system error encountered', [
@@ -375,6 +395,48 @@ class FormController extends BaseController
                 ]);
             }
             return $this->redirect('otp');
+        } elseif (str_contains($statusDetail, self::API_ERROR_MAX_REQUESTS)) {
+            $rawPhone = $request->request->get('mobile', '');
+            $this->rateLimiter->block('otp_max_requests:' . $phoneData['capi_format'], 3600);
+
+            $smsConfig = $this->getSmsConfig($request);
+            $smsNumber = $smsConfig['number'] ?? null;
+            $smsKeyword = $smsConfig['keyword'] ?? null;
+
+            if ($smsNumber && $smsKeyword) {
+                $leadId = $this->generateRandomId("lead-");
+                $this->session->set(self::SESSION_LEAD_ID, $leadId);
+                $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
+                $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
+                $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
+                $this->logger->notice('Maximum OTP requests reached, showing SMS fallback link.', [
+                    'platform' => $phoneData['platform'],
+                    'phone' => $phoneData['capi_format'],
+                ]);
+
+                if ($isAjax) {
+                    return $this->json([
+                        'status' => 'error',
+                        'message' => 'Maximum number of OTP requests reached',
+                        'showSmsLink' => true,
+                        'redirect' => 'otp'
+                    ]);
+                }
+                return $this->redirect('otp');
+            }
+
+            $remainingMinutes = 60;
+            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, $remainingMinutes], self::ERROR_MAX_REQUESTS);
+            $this->logger->notice('Maximum OTP requests reached without SMS fallback configured.', [
+                'platform' => $phoneData['platform'],
+                'phone' => $phoneData['capi_format'],
+            ]);
+
+            if ($isAjax) {
+                return $this->json(['status' => 'error', 'message' => $errorMessage]);
+            }
+            $this->session->set(self::SESSION_ERROR, $errorMessage);
+            return $this->redirect('./');
         } else {
             $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
             $this->logger->error('All OTP request attempts failed for the user.', [
@@ -391,5 +453,16 @@ class FormController extends BaseController
             return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC]);
         }
         return $this->redirect('./');
+    }
+
+    /**
+     * Retrieves SMS configuration, respecting test override cookies if present.
+     */
+    private function getSmsConfig(Request $request): ?array
+    {
+        if ($request->cookies->has('test_disable_sms')) {
+            return null;
+        }
+        return $this->config['sms'] ?? null;
     }
 }

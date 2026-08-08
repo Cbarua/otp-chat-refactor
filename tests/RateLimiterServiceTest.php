@@ -182,4 +182,20 @@ class RateLimiterServiceTest extends TestCase
         $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
         $this->assertEquals(0, $count);
     }
+
+    public function testBlockAndGetRemainingSeconds(): void
+    {
+        $key = 'otp_max_requests:94771234567';
+
+        // Initially remaining seconds is 0
+        $this->assertEquals(0, $this->rateLimiter->getRemainingSeconds($key));
+
+        // Block key for 3600 seconds
+        $this->rateLimiter->block($key, 3600);
+
+        // Remaining seconds should be positive (around 3600)
+        $remaining = $this->rateLimiter->getRemainingSeconds($key);
+        $this->assertGreaterThan(3590, $remaining);
+        $this->assertLessThanOrEqual(3600, $remaining);
+    }
 }

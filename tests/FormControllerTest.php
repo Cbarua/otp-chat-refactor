@@ -793,4 +793,86 @@ class FormControllerTest extends TestCase
         $this->assertEquals('error', $data['status']);
         $this->assertEquals('An error occurred. Please try again later.', $data['message']);
     }
+
+    public function testHandlePhoneFormMaxOtpRequestsWithSmsFallback(): void
+    {
+        $configWithSms = $this->config;
+        $configWithSms['sms'] = [
+            'number' => '1234',
+            'keyword' => 'REG'
+        ];
+
+        $controller = new TestableFormController(
+            $configWithSms,
+            $this->carrierConfig,
+            $this->otpServiceMock,
+            $this->userLoggerMock,
+            $this->capiServiceMock,
+            $this->loggerMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock,
+            $this->rateLimiterMock
+        );
+
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('block')->with('otp_max_requests:94771234567', 3600);
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Maximum number of OTP requests reached']);
+
+        $response = $controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertEquals('Maximum number of OTP requests reached', $data['message']);
+        $this->assertTrue($data['showSmsLink']);
+        $this->assertEquals('otp', $data['redirect']);
+        $this->assertTrue($this->sessionData[FormController::SESSION_SHOW_SMS_LINK]);
+    }
+
+    public function testHandlePhoneFormMaxOtpRequestsWithoutSmsFallback(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())->method('block')->with('otp_max_requests:94771234567', 3600);
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'FAIL', 'statusDetail' => 'Maximum number of OTP requests reached']);
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertStringContainsString('Maximum number of OTP requests reached for 0771234567. Please try again in 60 minutes', $data['message']);
+    }
+
+    public function testHandlePhoneFormBlockedDuring60MinuteWindow(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->rateLimiterMock->expects($this->once())
+            ->method('getRemainingSeconds')
+            ->with('otp_max_requests:94771234567')
+            ->willReturn(3000); // 50 minutes remaining
+
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+
+        $response = $this->controller->handlePhoneForm($request);
+
+        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
+        $data = json_decode($response->getContent(), true);
+        $this->assertEquals('error', $data['status']);
+        $this->assertStringContainsString('Maximum number of OTP requests reached for 0771234567. Please try again in 50 minutes', $data['message']);
+    }
 }
