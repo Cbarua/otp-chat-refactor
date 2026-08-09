@@ -1,0 +1,27 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main, test ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy via AWS EC2 Instance Connect
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Execute Multi-Instance Deploy via EC2 Instance Connect
+        run: |
+          echo "Connecting to EC2 instance ${{ secrets.EC2_INSTANCE_ID }} via AWS EC2 Instance Connect..."
+          aws ec2-instance-connect ssh \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --os-user "ec2-user" \
+            --remote-command "export TARGET_BRANCH='${GITHUB_REF_NAME}'; bash /var/www/html/scripts/deploy.sh"

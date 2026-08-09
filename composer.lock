@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8369473776ab68ec72b7665d507d5750",
+    "content-hash": "bcf1f1ee3619187352d1c25f05f031b7",
     "packages": [
         {
             "name": "facebook/capi-param-builder-php",

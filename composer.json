@@ -1,4 +1,7 @@
 {
+    "name": "cbarua/otp-chat-refactor",
+    "description": "OTP verification & user registration web application",
+    "license": "proprietary",
     "autoload": {
         "psr-4": {
             "App\\": "src/"
