@@ -14,6 +14,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\UrlRotationService;
 
 class FormController extends BaseController
 {
@@ -53,6 +54,7 @@ class FormController extends BaseController
     private SessionService $session;
     private CsrfService $csrfService;
     private RateLimiterService $rateLimiter;
+    private ?UrlRotationService $urlRotationService;
 
     public function __construct(
         array $config,
@@ -64,7 +66,8 @@ class FormController extends BaseController
         UserInfoService $userInfoService,
         SessionService $sessionService,
         CsrfService $csrfService,
-        RateLimiterService $rateLimiter
+        RateLimiterService $rateLimiter,
+        ?UrlRotationService $urlRotationService = null
     ) {
         $this->config = $config;
         $this->carrierConfig = $carrierConfig;
@@ -76,6 +79,7 @@ class FormController extends BaseController
         $this->session = $sessionService;
         $this->csrfService = $csrfService;
         $this->rateLimiter = $rateLimiter;
+        $this->urlRotationService = $urlRotationService;
     }
 
     /**
@@ -218,6 +222,26 @@ class FormController extends BaseController
         }
 
         $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
+
+        // URL Rotation Logic
+        $customUrls = null;
+        $platform = $phoneData['platform'];
+        $rotationPlatform = $this->config['api']['otp_rotation_platform'] ?? null;
+        $excludedPhones = $this->config['api']['otp_rotation_excluded_phones'] ?? [];
+        
+        if ($this->urlRotationService !== null && $platform === $rotationPlatform && !in_array($rawPhone, $excludedPhones)) {
+            $this->urlRotationService->incrementSubmissionCount($platform);
+
+            if ($this->urlRotationService->shouldRotate($platform)) {
+                $defaultUrls = $this->config['api'][$platform] ?? [];
+                $priorityNames = $this->config['api']['otp_url_priority'] ?? [];
+                $customUrls = $this->urlRotationService->getRotatedUrls($defaultUrls, $priorityNames);
+                $this->logger->info('URL Rotation triggered', ['platform' => $platform, 'urls' => $customUrls]);
+            }
+            $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData, [], $customUrls);
+            return $this->handleOtpApiResponse($request, $response, $phoneData);
+        }
+
         $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
 
         // 5. Handle the final API response

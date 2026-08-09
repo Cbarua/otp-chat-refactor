@@ -10,9 +10,10 @@ interface OtpApiInterface
      * @param string $subscriberId The 'tel:...' formatted number.
      * @param array $metaData Additional data for the API call.
      * @param array $excludeUrls An array of base URLs to exclude from this attempt.
+     * @param array $customUrls An array of base URLs to use instead of the default configuration.
      * @return array The JSON response from the first successful call, or the last failed response.
      */
-    public function getOtp(string $platform, string $subscriberId, array $metaData, array $excludeUrls = []): array;
+    public function getOtp(string $platform, string $subscriberId, array $metaData, array $excludeUrls = [], ?array $customUrls = null): array;
 
     /**
      * Verifies an OTP with the provider using a token from the getOtp call.

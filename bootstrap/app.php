@@ -31,6 +31,7 @@ use App\Service\SessionIdProcessor;
 use App\Service\UserInfoService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\UrlRotationService;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
@@ -129,6 +130,11 @@ $container['RateLimiterService'] = function ($c) {
     return new RateLimiterService($c['config']['db']['path'], $c['Logger']);
 };
 
+// Url Rotation Service
+$container['UrlRotationService'] = function ($c) {
+    return new UrlRotationService($c['config']['db']['path'], $c['Logger']);
+};
+
 // Facebook CAPI Service
 $container['FacebookCapiService'] = function ($c) {
     if (empty($c['config']['facebook']['capi_token'])) {
@@ -185,7 +191,8 @@ $container['FormController'] = function ($c) {
         $c['UserInfoService'],
         $c['SessionService'],
         $c['CsrfService'],
-        $c['RateLimiterService']
+        $c['RateLimiterService'],
+        $c['UrlRotationService']
     );
 };
 

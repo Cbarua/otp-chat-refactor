@@ -32,9 +32,9 @@ class OtpApiService implements OtpApiInterface
      * @param array $metaData Additional data for the API call.
      * @return array The response. On success, includes 'referenceNo' and 'verificationToken'.
      */
-    public function getOtp(string $platform, string $subscriberId, array $metaData, array $excludeUrls = []): array
+    public function getOtp(string $platform, string $subscriberId, array $metaData, array $excludeUrls = [], ?array $customUrls = null): array
     {
-        $allBaseUrls = $this->apiConfig[$platform] ?? [];
+        $allBaseUrls = $customUrls ?? ($this->apiConfig[$platform] ?? []);
         if (empty($allBaseUrls)) {
             $this->logger->critical('No API URLs configured for platform.', ['platform' => $platform]);
             return ['status' => 'error', 'message' => 'Url not found for platform.'];

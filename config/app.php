@@ -94,6 +94,9 @@ return [
         'ideamart' => $ideamartUrls,
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
+        'otp_url_priority' => $safeJsonDecode('OTP_URL_PRIORITY'),
+        'otp_rotation_platform' => $_ENV['OTP_ROTATION_PLATFORM'] ?? null,
+        'otp_rotation_excluded_phones' => $safeJsonDecode('OTP_ROTATION_EXCLUDED_PHONES'),
     ],
 
     'sms' => [
