@@ -75,6 +75,31 @@ if (isset($_COOKIE['TEST_LOG_DIR']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['A
     $capiFilename = 'capi.log';
 }
 
+// Parse rotation platforms & multi-platform priorities
+$rotationPlatforms = $safeJsonDecode('OTP_ROTATION_PLATFORMS');
+if (empty($rotationPlatforms) && !empty($_ENV['OTP_ROTATION_PLATFORMS'])) {
+    $rotationPlatforms = array_map('trim', explode(',', $_ENV['OTP_ROTATION_PLATFORMS']));
+}
+if (empty($rotationPlatforms) && !empty($_ENV['OTP_ROTATION_PLATFORM'])) {
+    $rotationPlatforms = [trim($_ENV['OTP_ROTATION_PLATFORM'])];
+}
+if (!is_array($rotationPlatforms)) {
+    $rotationPlatforms = [];
+}
+
+$rawPriority = $safeJsonDecode('OTP_URL_PRIORITY');
+$priorityMap = [];
+if (is_array($rawPriority)) {
+    // Check if it is an associative array (multi-platform map) or flat indexed array
+    $isAssoc = array_keys($rawPriority) !== range(0, count($rawPriority) - 1);
+    if ($isAssoc) {
+        $priorityMap = $rawPriority;
+    } else {
+        $defaultPlatform = $rotationPlatforms[0] ?? $_ENV['OTP_ROTATION_PLATFORM'] ?? 'ideamart';
+        $priorityMap = [$defaultPlatform => $rawPriority];
+    }
+}
+
 return [
     'env' => $_ENV['APP_ENV'] ?? 'development',
 
@@ -94,8 +119,9 @@ return [
         'ideamart' => $ideamartUrls,
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
-        'otp_url_priority' => $safeJsonDecode('OTP_URL_PRIORITY'),
-        'otp_rotation_platform' => $_ENV['OTP_ROTATION_PLATFORM'] ?? null,
+        'otp_url_priority' => $priorityMap,
+        'otp_rotation_platform' => $_ENV['OTP_ROTATION_PLATFORM'] ?? ($rotationPlatforms[0] ?? null),
+        'otp_rotation_platforms' => $rotationPlatforms,
         'otp_rotation_excluded_phones' => $safeJsonDecode('OTP_ROTATION_EXCLUDED_PHONES'),
     ],
 

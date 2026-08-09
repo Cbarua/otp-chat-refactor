@@ -193,4 +193,65 @@ class FormControllerRotationTest extends TestCase
 
         $this->controller->handlePhoneForm($request);
     }
+
+    public function testHandlePhoneFormTriggersMultiPlatformRotation()
+    {
+        $config = $this->config;
+        $config['api']['otp_rotation_platforms'] = ['ideamart', 'mspace'];
+        $config['api']['otp_url_priority'] = [
+            'ideamart' => ['url2', 'url1'],
+            'mspace' => ['murl2', 'murl1']
+        ];
+        $config['api']['mspace'] = ['murl1', 'murl2'];
+
+        $carrierConfig = $this->carrierConfig;
+        $carrierConfig['LK']['platform_map']['78'] = 'mspace';
+        $carrierConfig['LK']['prefixes']['hutch'] = ['78'];
+
+        $controller = new FormController(
+            $config,
+            $carrierConfig,
+            $this->otpService,
+            $this->userLogger,
+            $this->capiService,
+            $this->logger,
+            $this->userInfoService,
+            $this->sessionService,
+            $this->csrfService,
+            $this->rateLimiter,
+            $this->urlRotationService
+        );
+
+        $request = new Request([], ['mobile' => '0781234567', 'csrf_token' => 'valid_token']);
+
+        $this->csrfService->method('validate')->willReturn(true);
+        $this->userInfoService->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
+        $this->rateLimiter->method('check')->willReturn(true);
+        $this->sessionService->method('get')->willReturnMap([
+            ['visitor_id', null, 'test_visitor_id'],
+            ['fbp', null, null],
+            ['fbc', null, null]
+        ]);
+
+        $this->urlRotationService->expects($this->once())
+            ->method('incrementSubmissionCount')
+            ->with('mspace');
+
+        $this->urlRotationService->expects($this->once())
+            ->method('shouldRotate')
+            ->with('mspace')
+            ->willReturn(true);
+
+        $this->urlRotationService->expects($this->once())
+            ->method('getRotatedUrls')
+            ->with(['murl1', 'murl2'], ['murl2', 'murl1'])
+            ->willReturn(['murl2', 'murl1']);
+
+        $this->otpService->expects($this->once())
+            ->method('getOtp')
+            ->with('mspace', 'tel:94781234567', $this->anything(), [], ['murl2', 'murl1'])
+            ->willReturn(['status' => 'success', 'verificationToken' => 'token']);
+
+        $controller->handlePhoneForm($request);
+    }
 }

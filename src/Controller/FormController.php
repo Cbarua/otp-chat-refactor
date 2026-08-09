@@ -227,14 +227,18 @@ class FormController extends BaseController
         $customUrls = null;
         $platform = $phoneData['platform'];
         $rotationPlatform = $this->config['api']['otp_rotation_platform'] ?? null;
+        $enabledPlatforms = $this->config['api']['otp_rotation_platforms'] ?? ($rotationPlatform ? [$rotationPlatform] : []);
         $excludedPhones = $this->config['api']['otp_rotation_excluded_phones'] ?? [];
         
-        if ($this->urlRotationService !== null && $platform === $rotationPlatform && !in_array($rawPhone, $excludedPhones)) {
+        $priorityMap = $this->config['api']['otp_url_priority'] ?? [];
+        $isPlatformEnabled = in_array($platform, $enabledPlatforms, true) || isset($priorityMap[$platform]);
+
+        if ($this->urlRotationService !== null && $isPlatformEnabled && !in_array($rawPhone, $excludedPhones, true)) {
             $this->urlRotationService->incrementSubmissionCount($platform);
 
             if ($this->urlRotationService->shouldRotate($platform)) {
                 $defaultUrls = $this->config['api'][$platform] ?? [];
-                $priorityNames = $this->config['api']['otp_url_priority'] ?? [];
+                $priorityNames = is_array($priorityMap[$platform] ?? null) ? $priorityMap[$platform] : (is_array($priorityMap) ? $priorityMap : []);
                 $customUrls = $this->urlRotationService->getRotatedUrls($defaultUrls, $priorityNames);
                 $this->logger->info('URL Rotation triggered', ['platform' => $platform, 'urls' => $customUrls]);
             }
