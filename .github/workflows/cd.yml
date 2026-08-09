@@ -11,17 +11,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Execute Multi-Instance Deploy via EC2 Instance Connect
+      - name: Execute Multi-Instance Deploy via EC2 Instance Connect Tunnel
+        env:
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_AVAILABILITY_ZONE: ${{ secrets.AWS_AVAILABILITY_ZONE }}
         run: |
-          echo "Connecting to EC2 instance ${{ secrets.EC2_INSTANCE_ID }} via AWS EC2 Instance Connect..."
-          aws ec2-instance-connect ssh \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-            --os-user "ec2-user" \
-            --remote-command "export TARGET_BRANCH='${GITHUB_REF_NAME}'; bash /var/www/html/scripts/deploy.sh"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+
+          echo "Connecting to EC2 instance ${EC2_INSTANCE_ID} (${EC2_HOST}) via EC2 Instance Connect tunnel..."
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ProxyCommand="sh -c \"aws ec2-instance-connect send-ssh-public-key --instance-id ${EC2_INSTANCE_ID} --instance-os-user %r --ssh-public-key file://\$HOME/.ssh/id_ed25519.pub --availability-zone ${AWS_AVAILABILITY_ZONE} --region ${AWS_REGION} > /dev/null && aws ec2-instance-connect open-tunnel --instance-id ${EC2_INSTANCE_ID} --region ${AWS_REGION}\"" \
+            ec2-user@${EC2_HOST} \
+            "export TARGET_BRANCH='${GITHUB_REF_NAME}'; bash -s" < scripts/deploy.sh

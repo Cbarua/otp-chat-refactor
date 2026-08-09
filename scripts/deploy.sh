@@ -55,7 +55,7 @@ for dir in "${ROOT_DIR}"/*/*; do
         # 1. Fetch latest changes from remote
         echo " -> Fetching latest code from git..."
         TARGET_BRANCH="${TARGET_BRANCH:-main}"
-        git fetch origin "$TARGET_BRANCH"
+        git fetch origin "$TARGET_BRANCH" --prune
         git reset --hard "origin/$TARGET_BRANCH"
 
         # 2. Run production composer install
@@ -65,8 +65,9 @@ for dir in "${ROOT_DIR}"/*/*; do
         # 3. Ensure proper directory & log permissions (SGID ec2-user:apache)
         echo " -> Enforcing permissions on logs/..."
         mkdir -p logs/app logs/capi
-        chmod -R 2775 logs
+        chmod -R 2775 logs 2>/dev/null || true
         chown -R ec2-user:apache logs 2>/dev/null || true
+
 
         if [ -f logs/userlog.sqlite ]; then
             chmod 664 logs/userlog.sqlite 2>/dev/null || true
