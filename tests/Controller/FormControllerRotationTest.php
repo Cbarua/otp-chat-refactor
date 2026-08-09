@@ -35,9 +35,9 @@ class FormControllerRotationTest extends TestCase
     {
         $this->config = [
             'api' => [
-                'otp_rotation_platform' => 'ideamart',
-                'otp_rotation_excluded_phones' => ['0771234568'],
-                'otp_url_priority' => ['url2', 'url1'],
+                'url_rotation_platform' => 'ideamart',
+                'url_rotation_excluded_phones' => ['0771234568'],
+                'url_rotation_priority' => ['url2', 'url1'],
                 'ideamart' => ['url1', 'url2', 'url3']
             ],
             'facebook' => ['pixel_id' => '123'],
@@ -109,7 +109,7 @@ class FormControllerRotationTest extends TestCase
 
         $this->urlRotationService->expects($this->once())
             ->method('getRotatedUrls')
-            ->with($this->config['api']['ideamart'], $this->config['api']['otp_url_priority'])
+            ->with($this->config['api']['ideamart'], $this->config['api']['url_rotation_priority'])
             ->willReturn($this->rotatedUrls);
 
         // Expect OtpService to be called with rotated URLs
@@ -184,6 +184,14 @@ class FormControllerRotationTest extends TestCase
             ['fbc', null, null]
         ]);
 
+        // Expect notice log for skipped rotation
+        $this->logger->expects($this->once())
+            ->method('notice')
+            ->with(
+                $this->equalTo('URL Rotation skipped: phone number excluded'),
+                $this->anything()
+            );
+
         // Expect NO rotation logic interactions
         $this->urlRotationService->expects($this->never())
             ->method('incrementSubmissionCount');
@@ -194,11 +202,64 @@ class FormControllerRotationTest extends TestCase
         $this->controller->handlePhoneForm($request);
     }
 
+    public function testHandlePhoneFormSkipsRotationForExcludedUserAgent()
+    {
+        $config = $this->config;
+        $config['api']['url_rotation_excluded_useragents'] = ['HeadlessChrome', 'Googlebot'];
+
+        $controller = new FormController(
+            $config,
+            $this->carrierConfig,
+            $this->otpService,
+            $this->userLogger,
+            $this->capiService,
+            $this->logger,
+            $this->userInfoService,
+            $this->sessionService,
+            $this->csrfService,
+            $this->rateLimiter,
+            $this->urlRotationService
+        );
+
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid_token']);
+
+        $this->csrfService->method('validate')->willReturn(true);
+        $this->userInfoService->method('get')->willReturn([
+            'ip' => '127.0.0.1',
+            'useragent' => 'Mozilla/5.0 HeadlessChrome/120.0.0.0'
+        ]);
+        $this->rateLimiter->method('check')->willReturn(true);
+        $this->sessionService->method('get')->willReturnMap([
+            ['visitor_id', null, 'test_visitor_id'],
+            ['fbp', null, null],
+            ['fbc', null, null]
+        ]);
+
+        // Expect notice log for skipped rotation with matched keyword
+        $this->logger->expects($this->once())
+            ->method('notice')
+            ->with(
+                $this->equalTo('URL Rotation skipped: user-agent keyword matched'),
+                $this->callback(function ($context) {
+                    return isset($context['matched_keyword']) && $context['matched_keyword'] === 'HeadlessChrome';
+                })
+            );
+
+        // Expect NO rotation logic interactions
+        $this->urlRotationService->expects($this->never())
+            ->method('incrementSubmissionCount');
+
+        $this->urlRotationService->expects($this->never())
+            ->method('shouldRotate');
+
+        $controller->handlePhoneForm($request);
+    }
+
     public function testHandlePhoneFormTriggersMultiPlatformRotation()
     {
         $config = $this->config;
-        $config['api']['otp_rotation_platforms'] = ['ideamart', 'mspace'];
-        $config['api']['otp_url_priority'] = [
+        $config['api']['url_rotation_platforms'] = ['ideamart', 'mspace'];
+        $config['api']['url_rotation_priority'] = [
             'ideamart' => ['url2', 'url1'],
             'mspace' => ['murl2', 'murl1']
         ];

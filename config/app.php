@@ -76,18 +76,22 @@ if (isset($_COOKIE['TEST_LOG_DIR']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['A
 }
 
 // Parse rotation platforms & multi-platform priorities
-$rotationPlatforms = $safeJsonDecode('OTP_ROTATION_PLATFORMS');
-if (empty($rotationPlatforms) && !empty($_ENV['OTP_ROTATION_PLATFORMS'])) {
+$rotationPlatforms = $safeJsonDecode('URL_ROTATION_PLATFORMS') ?? $safeJsonDecode('OTP_ROTATION_PLATFORMS');
+if (empty($rotationPlatforms) && !empty($_ENV['URL_ROTATION_PLATFORMS'])) {
+    $rotationPlatforms = array_map('trim', explode(',', $_ENV['URL_ROTATION_PLATFORMS']));
+} elseif (empty($rotationPlatforms) && !empty($_ENV['OTP_ROTATION_PLATFORMS'])) {
     $rotationPlatforms = array_map('trim', explode(',', $_ENV['OTP_ROTATION_PLATFORMS']));
 }
-if (empty($rotationPlatforms) && !empty($_ENV['OTP_ROTATION_PLATFORM'])) {
-    $rotationPlatforms = [trim($_ENV['OTP_ROTATION_PLATFORM'])];
+
+$singlePlatform = $_ENV['URL_ROTATION_PLATFORM'] ?? $_ENV['OTP_ROTATION_PLATFORM'] ?? null;
+if (empty($rotationPlatforms) && !empty($singlePlatform)) {
+    $rotationPlatforms = [trim($singlePlatform)];
 }
 if (!is_array($rotationPlatforms)) {
     $rotationPlatforms = [];
 }
 
-$rawPriority = $safeJsonDecode('OTP_URL_PRIORITY');
+$rawPriority = $safeJsonDecode('URL_ROTATION_PRIORITY') ?? $safeJsonDecode('OTP_URL_PRIORITY');
 $priorityMap = [];
 if (is_array($rawPriority)) {
     // Check if it is an associative array (multi-platform map) or flat indexed array
@@ -95,10 +99,13 @@ if (is_array($rawPriority)) {
     if ($isAssoc) {
         $priorityMap = $rawPriority;
     } else {
-        $defaultPlatform = $rotationPlatforms[0] ?? $_ENV['OTP_ROTATION_PLATFORM'] ?? 'ideamart';
+        $defaultPlatform = $rotationPlatforms[0] ?? $singlePlatform ?? 'ideamart';
         $priorityMap = [$defaultPlatform => $rawPriority];
     }
 }
+
+$excludedPhones = $safeJsonDecode('URL_ROTATION_EXCLUDED_PHONES') ?? $safeJsonDecode('OTP_ROTATION_EXCLUDED_PHONES') ?? [];
+$excludedUserAgents = $safeJsonDecode('URL_ROTATION_EXCLUDED_USERAGENTS') ?? $safeJsonDecode('OTP_ROTATION_EXCLUDED_USERAGENTS') ?? [];
 
 return [
     'env' => $_ENV['APP_ENV'] ?? 'development',
@@ -119,10 +126,17 @@ return [
         'ideamart' => $ideamartUrls,
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
+        'url_rotation_priority' => $priorityMap,
+        'url_rotation_platform' => $singlePlatform ?? ($rotationPlatforms[0] ?? null),
+        'url_rotation_platforms' => $rotationPlatforms,
+        'url_rotation_excluded_phones' => $excludedPhones,
+        'url_rotation_excluded_useragents' => $excludedUserAgents,
+        // Legacy keys for backward compatibility
         'otp_url_priority' => $priorityMap,
-        'otp_rotation_platform' => $_ENV['OTP_ROTATION_PLATFORM'] ?? ($rotationPlatforms[0] ?? null),
+        'otp_rotation_platform' => $singlePlatform ?? ($rotationPlatforms[0] ?? null),
         'otp_rotation_platforms' => $rotationPlatforms,
-        'otp_rotation_excluded_phones' => $safeJsonDecode('OTP_ROTATION_EXCLUDED_PHONES'),
+        'otp_rotation_excluded_phones' => $excludedPhones,
+        'otp_rotation_excluded_useragents' => $excludedUserAgents,
     ],
 
     'sms' => [

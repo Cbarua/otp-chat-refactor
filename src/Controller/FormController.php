@@ -226,24 +226,49 @@ class FormController extends BaseController
         // URL Rotation Logic
         $customUrls = null;
         $platform = $phoneData['platform'];
-        $rotationPlatform = $this->config['api']['otp_rotation_platform'] ?? null;
-        $enabledPlatforms = $this->config['api']['otp_rotation_platforms'] ?? ($rotationPlatform ? [$rotationPlatform] : []);
-        $excludedPhones = $this->config['api']['otp_rotation_excluded_phones'] ?? [];
+        $rotationPlatform = $this->config['api']['url_rotation_platform'] ?? $this->config['api']['otp_rotation_platform'] ?? null;
+        $enabledPlatforms = $this->config['api']['url_rotation_platforms'] ?? $this->config['api']['otp_rotation_platforms'] ?? ($rotationPlatform ? [$rotationPlatform] : []);
+        $excludedPhones = $this->config['api']['url_rotation_excluded_phones'] ?? $this->config['api']['otp_rotation_excluded_phones'] ?? [];
+        $excludedUserAgents = $this->config['api']['url_rotation_excluded_useragents'] ?? $this->config['api']['otp_rotation_excluded_useragents'] ?? [];
+        $useragent = $userInfo['useragent'] ?? '';
         
-        $priorityMap = $this->config['api']['otp_url_priority'] ?? [];
+        $priorityMap = $this->config['api']['url_rotation_priority'] ?? $this->config['api']['otp_url_priority'] ?? [];
         $isPlatformEnabled = in_array($platform, $enabledPlatforms, true) || isset($priorityMap[$platform]);
 
-        if ($this->urlRotationService !== null && $isPlatformEnabled && !in_array($rawPhone, $excludedPhones, true)) {
-            $this->urlRotationService->incrementSubmissionCount($platform);
+        if ($this->urlRotationService !== null && $isPlatformEnabled) {
+            if (in_array($rawPhone, $excludedPhones, true)) {
+                $this->logger->notice('URL Rotation skipped: phone number excluded', [
+                    'phone' => $phoneData['capi_format'] ?? $rawPhone,
+                    'platform' => $platform
+                ]);
+            } else {
+                $matchedUserAgentKeyword = null;
+                foreach ($excludedUserAgents as $keyword) {
+                    if (is_string($keyword) && $keyword !== '' && stripos($useragent, $keyword) !== false) {
+                        $matchedUserAgentKeyword = $keyword;
+                        break;
+                    }
+                }
 
-            if ($this->urlRotationService->shouldRotate($platform)) {
-                $defaultUrls = $this->config['api'][$platform] ?? [];
-                $priorityNames = is_array($priorityMap[$platform] ?? null) ? $priorityMap[$platform] : (is_array($priorityMap) ? $priorityMap : []);
-                $customUrls = $this->urlRotationService->getRotatedUrls($defaultUrls, $priorityNames);
-                $this->logger->info('URL Rotation triggered', ['platform' => $platform, 'urls' => $customUrls]);
+                if ($matchedUserAgentKeyword !== null) {
+                    $this->logger->notice('URL Rotation skipped: user-agent keyword matched', [
+                        'matched_keyword' => $matchedUserAgentKeyword,
+                        'useragent' => $useragent,
+                        'platform' => $platform
+                    ]);
+                } else {
+                    $this->urlRotationService->incrementSubmissionCount($platform);
+
+                    if ($this->urlRotationService->shouldRotate($platform)) {
+                        $defaultUrls = $this->config['api'][$platform] ?? [];
+                        $priorityNames = is_array($priorityMap[$platform] ?? null) ? $priorityMap[$platform] : (is_array($priorityMap) ? $priorityMap : []);
+                        $customUrls = $this->urlRotationService->getRotatedUrls($defaultUrls, $priorityNames);
+                        $this->logger->info('URL Rotation triggered', ['platform' => $platform, 'urls' => $customUrls]);
+                    }
+                    $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData, [], $customUrls);
+                    return $this->handleOtpApiResponse($request, $response, $phoneData);
+                }
             }
-            $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData, [], $customUrls);
-            return $this->handleOtpApiResponse($request, $response, $phoneData);
         }
 
         $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
