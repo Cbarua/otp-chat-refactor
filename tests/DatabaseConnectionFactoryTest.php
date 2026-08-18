@@ -3,7 +3,6 @@
 
 use PHPUnit\Framework\TestCase;
 use App\Database\DatabaseConnectionFactory;
-use SQLite3;
 
 class DatabaseConnectionFactoryTest extends TestCase
 {
