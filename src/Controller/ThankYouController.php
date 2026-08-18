@@ -6,6 +6,7 @@ namespace App\Controller;
 use App\Service\FacebookCapiService;
 use App\Service\SessionService;
 use App\Service\UserInfoService;
+use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,21 +22,30 @@ class ThankYouController extends BaseController
     private array $config;
     private ?FacebookCapiService $capiService;
     private LoggerInterface $logger;
-    private UserInfoService $userInfoService;
+    private ?UserInfoService $userInfoService;
     private SessionService $session;
+    private ?AnalyticsTrackerService $analyticsTracker = null;
 
     public function __construct(
         array $config,
-        ?FacebookCapiService $capiService,
+        AnalyticsTrackerService|FacebookCapiService|null $analyticsOrCapi,
         LoggerInterface $logger,
-        UserInfoService $userInfoService,
-        SessionService $sessionService
+        mixed $userInfoOrSession = null,
+        ?SessionService $sessionService = null
     ) {
         $this->config = $config;
-        $this->capiService = $capiService;
         $this->logger = $logger;
-        $this->userInfoService = $userInfoService;
-        $this->session = $sessionService;
+
+        if ($analyticsOrCapi instanceof AnalyticsTrackerService) {
+            $this->analyticsTracker = $analyticsOrCapi;
+            $this->session = $userInfoOrSession;
+            $this->capiService = $analyticsOrCapi->getCapiService();
+            $this->userInfoService = $analyticsOrCapi->getUserInfoService();
+        } else {
+            $this->capiService = $analyticsOrCapi;
+            $this->userInfoService = $userInfoOrSession;
+            $this->session = $sessionService;
+        }
     }
 
     /**

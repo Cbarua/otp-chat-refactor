@@ -142,6 +142,18 @@ $container['FacebookCapiService'] = function ($c) {
     return new FacebookCapiService($c['config'], $c['CapiLogger']);
 };
 
+// Analytics & Visitor Tracker Service
+$container['AnalyticsTrackerService'] = function ($c) {
+    return new \App\Service\AnalyticsTrackerService(
+        $c['config'],
+        $c['FacebookCapiService'],
+        $c['UserInfoService'],
+        $c['SessionService'],
+        $c['UserLoggerService'],
+        $c['Logger']
+    );
+};
+
 
 // 6. Manage Long-Lived Visitor ID
 /** @var \App\Service\SessionService $session */
@@ -184,10 +196,8 @@ $container['FormController'] = function ($c) {
         $c['config'],
         $c['carrierConfig'],
         $c['OtpApiService'],
-        $c['UserLoggerService'],
-        $c['FacebookCapiService'],
+        $c['AnalyticsTrackerService'],
         $c['Logger'],
-        $c['UserInfoService'],
         $c['SessionService'],
         $c['CsrfService'],
         $c['RateLimiterService']
@@ -198,9 +208,8 @@ $container['OtpController'] = function ($c) {
     return new OtpController(
         $c['config'],
         $c['OtpApiService'],
-        $c['FacebookCapiService'],
+        $c['AnalyticsTrackerService'],
         $c['Logger'],
-        $c['UserInfoService'],
         $c['SessionService'],
         $c['CsrfService'],
         $c['RateLimiterService']
@@ -210,9 +219,8 @@ $container['OtpController'] = function ($c) {
 $container['ThankYouController'] = function ($c) {
     return new ThankYouController(
         $c['config'],
-        $c['FacebookCapiService'],
+        $c['AnalyticsTrackerService'],
         $c['Logger'],
-        $c['UserInfoService'],
         $c['SessionService']
     );
 };

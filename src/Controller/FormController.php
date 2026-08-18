@@ -14,6 +14,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\AnalyticsTrackerService;
 use App\Enum\SessionKey;
 use App\Enum\ApiStatus;
 use App\DTO\PhoneNumber;
@@ -56,29 +57,50 @@ class FormController extends BaseController
     private SessionService $session;
     private CsrfService $csrfService;
     private RateLimiterService $rateLimiter;
+    private AnalyticsTrackerService $analyticsTracker;
 
     public function __construct(
         array $config,
         array $carrierConfig,
         OtpApiInterface $otpService,
-        UserLoggerInterface $userLogger,
-        ?FacebookCapiService $capiService,
-        LoggerInterface $logger,
-        UserInfoService $userInfoService,
-        SessionService $sessionService,
-        CsrfService $csrfService,
-        RateLimiterService $rateLimiter
+        AnalyticsTrackerService|UserLoggerInterface $analyticsOrUserLogger,
+        mixed $capiOrLogger = null,
+        mixed $loggerOrSession = null,
+        mixed $userInfoOrCsrf = null,
+        mixed $sessionOrRateLimiter = null,
+        ?CsrfService $csrfService = null,
+        ?RateLimiterService $rateLimiter = null
     ) {
         $this->config = $config;
         $this->carrierConfig = $carrierConfig;
         $this->otpService = $otpService;
-        $this->userLogger = $userLogger;
-        $this->capiService = $capiService;
-        $this->logger = $logger;
-        $this->userInfoService = $userInfoService;
-        $this->session = $sessionService;
-        $this->csrfService = $csrfService;
-        $this->rateLimiter = $rateLimiter;
+
+        if ($analyticsOrUserLogger instanceof AnalyticsTrackerService) {
+            $this->analyticsTracker = $analyticsOrUserLogger;
+            $this->logger = $capiOrLogger;
+            $this->session = $loggerOrSession;
+            $this->csrfService = $userInfoOrCsrf;
+            $this->rateLimiter = $sessionOrRateLimiter;
+            $this->capiService = $analyticsOrUserLogger->getCapiService();
+            $this->userLogger = $analyticsOrUserLogger->getUserLogger();
+            $this->userInfoService = $analyticsOrUserLogger->getUserInfoService();
+        } else {
+            $this->userLogger = $analyticsOrUserLogger;
+            $this->capiService = $capiOrLogger;
+            $this->logger = $loggerOrSession;
+            $this->userInfoService = $userInfoOrCsrf;
+            $this->session = $sessionOrRateLimiter;
+            $this->csrfService = $csrfService;
+            $this->rateLimiter = $rateLimiter;
+            $this->analyticsTracker = new AnalyticsTrackerService(
+                $config,
+                $capiOrLogger,
+                $userInfoOrCsrf,
+                $this->session,
+                $analyticsOrUserLogger,
+                $this->logger
+            );
+        }
     }
 
     /**

@@ -13,6 +13,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\AnalyticsTrackerService;
 use App\Enum\SessionKey;
 use App\Enum\ApiStatus;
 
@@ -58,25 +59,37 @@ class OtpController extends BaseController
     private SessionService $session;
     private CsrfService $csrfService;
     private RateLimiterService $rateLimiter;
+    private ?AnalyticsTrackerService $analyticsTracker = null;
 
     public function __construct(
         array $config,
         OtpApiInterface $otpService,
-        ?FacebookCapiService $capiService,
-        LoggerInterface $logger,
-        UserInfoService $userInfoService,
-        SessionService $sessionService,
-        CsrfService $csrfService,
-        RateLimiterService $rateLimiter
+        AnalyticsTrackerService|FacebookCapiService|null $analyticsOrCapi,
+        mixed $loggerOrSession = null,
+        mixed $userInfoOrCsrf = null,
+        mixed $sessionOrRateLimiter = null,
+        ?CsrfService $csrfService = null,
+        ?RateLimiterService $rateLimiter = null
     ) {
         $this->config = $config;
         $this->otpService = $otpService;
-        $this->logger = $logger;
-        $this->capiService = $capiService;
-        $this->userInfoService = $userInfoService;
-        $this->session = $sessionService;
-        $this->csrfService = $csrfService;
-        $this->rateLimiter = $rateLimiter;
+
+        if ($analyticsOrCapi instanceof AnalyticsTrackerService) {
+            $this->analyticsTracker = $analyticsOrCapi;
+            $this->logger = $loggerOrSession;
+            $this->session = $userInfoOrCsrf;
+            $this->csrfService = $sessionOrRateLimiter;
+            $this->rateLimiter = $csrfService;
+            $this->capiService = $analyticsOrCapi->getCapiService();
+            $this->userInfoService = $analyticsOrCapi->getUserInfoService();
+        } else {
+            $this->capiService = $analyticsOrCapi;
+            $this->logger = $loggerOrSession;
+            $this->userInfoService = $userInfoOrCsrf;
+            $this->session = $sessionOrRateLimiter;
+            $this->csrfService = $csrfService;
+            $this->rateLimiter = $rateLimiter;
+        }
     }
 
     /**
