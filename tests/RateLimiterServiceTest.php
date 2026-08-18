@@ -198,4 +198,16 @@ class RateLimiterServiceTest extends TestCase
         $this->assertGreaterThan(3590, $remaining);
         $this->assertLessThanOrEqual(3600, $remaining);
     }
+
+    public function testSharedDatabaseConnectionInstance(): void
+    {
+        $db = new \SQLite3(':memory:');
+        $service = new RateLimiterService($db, $this->loggerMock);
+
+        $this->assertTrue($service->check('shared_key', 3, 60));
+        $service->increment('shared_key');
+        $this->assertTrue($service->check('shared_key', 3, 60));
+
+        $db->close();
+    }
 }

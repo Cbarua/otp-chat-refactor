@@ -10,14 +10,26 @@ use Psr\Log\LoggerInterface;
 class RateLimiterService
 {
     private ?SQLite3 $db = null;
-    private string $dbPath;
+    private ?string $dbPath = null;
     private LoggerInterface $logger;
+    private bool $ownsConnection = false;
 
-    public function __construct(string $dbPath, LoggerInterface $logger)
+    /**
+     * @param SQLite3|string $dbOrPath The shared SQLite3 instance or file path.
+     * @param LoggerInterface $logger
+     */
+    public function __construct(SQLite3|string $dbOrPath, LoggerInterface $logger)
     {
-        $this->dbPath = $dbPath;
         $this->logger = $logger;
-        $this->initializeDatabase();
+        if ($dbOrPath instanceof SQLite3) {
+            $this->db = $dbOrPath;
+            $this->ownsConnection = false;
+            $this->ensureSchema();
+        } else {
+            $this->dbPath = $dbOrPath;
+            $this->ownsConnection = true;
+            $this->initializeDatabase();
+        }
     }
 
     private function initializeDatabase(): void
@@ -34,6 +46,20 @@ class RateLimiterService
             $this->db->busyTimeout(5000);
             $this->db->exec('PRAGMA journal_mode = WAL;');
 
+            $this->ensureSchema();
+        } catch (Exception $e) {
+            $this->logger->error("RateLimiterService DB Error", ['error' => $e->getMessage()]);
+            $this->db = null;
+        }
+    }
+
+    private function ensureSchema(): void
+    {
+        if (!$this->db) {
+            return;
+        }
+
+        try {
             // Create table for rate limits
             $createTableSQL = "CREATE TABLE IF NOT EXISTS rate_limits (
                 key TEXT PRIMARY KEY,
@@ -44,10 +70,11 @@ class RateLimiterService
             if (!$this->db->exec($createTableSQL)) {
                 throw new Exception("Failed to create rate_limits table: " . $this->db->lastErrorMsg());
             }
-
         } catch (Exception $e) {
-            $this->logger->error("RateLimiterService DB Error", ['error' => $e->getMessage()]);
-            $this->db = null;
+            $this->logger->error("RateLimiterService Schema Error", ['error' => $e->getMessage()]);
+            if ($this->ownsConnection) {
+                $this->db = null;
+            }
         }
     }
 
@@ -204,6 +231,8 @@ class RateLimiterService
 
     public function __destruct()
     {
-        $this->db?->close();
+        if ($this->ownsConnection) {
+            $this->db?->close();
+        }
     }
 }

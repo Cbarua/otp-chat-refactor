@@ -119,4 +119,16 @@ class SimpleUserLoggerServiceTest extends TestCase
         $busyTimeout = $db->querySingle("PRAGMA busy_timeout");
         $this->assertEquals(5000, $busyTimeout, "Busy timeout should be 5000ms");
     }
+
+    public function testSharedDatabaseConnectionInstance(): void
+    {
+        $db = new \SQLite3(':memory:');
+        $service = new SimpleUserLoggerService($db, $this->loggerMock);
+
+        $service->logVisit('v_shared', '127.0.0.1', 'Mozilla/5.0');
+        $count = $db->querySingle("SELECT COUNT(*) FROM logs WHERE visitor_id = 'v_shared'");
+        $this->assertEquals(1, $count);
+
+        $db->close();
+    }
 }

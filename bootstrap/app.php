@@ -35,6 +35,7 @@ use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
 use App\Utils\OrderedJsonFormatter;
+use App\Database\DatabaseConnectionFactory;
 use GuzzleHttp\Client;
 
 // 1. Start Session
@@ -118,15 +119,19 @@ $container['OtpApiService'] = function ($c) {
     return new OtpApiService($c['config']['api'], $c['Logger'], $c['GuzzleClient']);
 };
 
+// Database Connection (Singleton with WAL mode & busy timeout)
+$container['DatabaseConnection'] = function ($c) {
+    return DatabaseConnectionFactory::create($c['config']['db']['path'], 5000);
+};
+
 // User Logger Service (Database)
 $container['UserLoggerService'] = function ($c) {
-    return new SimpleUserLoggerService($c['config']['db']['path'], $c['Logger']);
+    return new SimpleUserLoggerService($c['DatabaseConnection'], $c['Logger']);
 };
 
 // Rate Limiter Service (Database)
 $container['RateLimiterService'] = function ($c) {
-    // Use the same DB path as UserLogger but a different table
-    return new RateLimiterService($c['config']['db']['path'], $c['Logger']);
+    return new RateLimiterService($c['DatabaseConnection'], $c['Logger']);
 };
 
 // Facebook CAPI Service
