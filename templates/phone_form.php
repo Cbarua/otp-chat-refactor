@@ -45,7 +45,7 @@
         <input type="hidden" id="fbc" name="fbc" value="">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
 
-        <input type="tel" id="mobile" name="mobile" placeholder="0700000000" maxlength="10" minlength="9" required autocomplete="tel">
+        <input type="tel" id="mobile" name="mobile" inputmode="tel" pattern="[0-9]*" placeholder="0700000000" maxlength="10" minlength="9" required autocomplete="tel">
         <input type="submit" value="Register">
 
     </form>
