@@ -12,7 +12,7 @@ $argString = !empty($extraArgs) ? ' ' . implode(' ', array_map('escapeshellarg',
 
 if ($osFamily === 'Windows') {
     $script = __DIR__ . DIRECTORY_SEPARATOR . 'run-acceptance.bat';
-    $cmd = "cmd /c \"$script\"$argString";
+    $cmd = "cmd /c \"\"$script\"$argString\"";
 } else {
     $script = __DIR__ . DIRECTORY_SEPARATOR . 'run-acceptance.sh';
     $cmd = "bash $script$argString";
