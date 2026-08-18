@@ -13,21 +13,23 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Enum\SessionKey;
+use App\Enum\ApiStatus;
 
 class OtpController extends BaseController
 {
     // Session Keys
-    public const SESSION_OTP_TOKEN = 'otp_token';
-    public const SESSION_PHONE_DATA = 'phone_data';
-    public const SESSION_ERROR = 'error_message';
-    public const SESSION_PAGE_VIEW_ID = 'page_view_id_otp';
-    public const SESSION_REG_ID = 'reg_id';
-    public const SESSION_LEAD_ID = 'lead_id';
-    public const SESSION_INVALID_OTP_COUNT = 'invalid_otp_count';
-    public const SESSION_SHOW_SMS_LINK = 'show_sms_link';
+    public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
+    public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
+    public const SESSION_ERROR = SessionKey::ERROR_MESSAGE->value;
+    public const SESSION_PAGE_VIEW_ID = SessionKey::PAGE_VIEW_ID_OTP->value;
+    public const SESSION_REG_ID = SessionKey::REG_ID->value;
+    public const SESSION_LEAD_ID = SessionKey::LEAD_ID->value;
+    public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
+    public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
 
     // API Statuses
-    public const OTP_SUCCESS = 'success';
+    public const OTP_SUCCESS = ApiStatus::SUCCESS->value;
     public const OTP_INVALID = 'Invalid OTP';
     public const OTP_NOT_FOUND = 'Could not find OTP';
     public const OTP_STATUS_EXPIRED = 'OTP request has being expired';

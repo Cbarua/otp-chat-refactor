@@ -14,26 +14,28 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Enum\SessionKey;
+use App\Enum\ApiStatus;
 
 class FormController extends BaseController
 {
     // Session Keys
-    public const SESSION_ERROR = 'error_message';
-    public const SESSION_ALREADY_REGISTERED = 'already_registered';
-    public const SESSION_PAGE_VIEW_ID = 'page_view_id';
-    public const SESSION_VISITOR_ID = 'visitor_id';
-    public const SESSION_PHONE_DATA = 'phone_data';
-    public const SESSION_FBP = 'fbp';
-    public const SESSION_FBC = 'fbc';
-    public const SESSION_LEAD_ID = 'lead_id';
-    public const SESSION_OTP_TOKEN = 'otp_token';
-    public const SESSION_INVALID_OTP_COUNT = 'invalid_otp_count';
-    public const SESSION_SHOW_SMS_LINK = 'show_sms_link';
+    public const SESSION_ERROR = SessionKey::ERROR_MESSAGE->value;
+    public const SESSION_ALREADY_REGISTERED = SessionKey::ALREADY_REGISTERED->value;
+    public const SESSION_PAGE_VIEW_ID = SessionKey::PAGE_VIEW_ID->value;
+    public const SESSION_VISITOR_ID = SessionKey::VISITOR_ID->value;
+    public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
+    public const SESSION_FBP = SessionKey::FBP->value;
+    public const SESSION_FBC = SessionKey::FBC->value;
+    public const SESSION_LEAD_ID = SessionKey::LEAD_ID->value;
+    public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
+    public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
+    public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
 
     // API Statuses
-    private const API_STATUS_ALREADY_REGISTERED = 'user already registered';
-    private const API_ERROR_TEMPORARY_FAILURE = 'temporary system error';
-    private const API_ERROR_MAX_REQUESTS = 'maximum number of otp requests reached';
+    private const API_STATUS_ALREADY_REGISTERED = ApiStatus::ALREADY_REGISTERED->value;
+    private const API_ERROR_TEMPORARY_FAILURE = ApiStatus::TEMPORARY_FAILURE->value;
+    private const API_ERROR_MAX_REQUESTS = ApiStatus::MAX_REQUESTS_REACHED->value;
     private const ALREADY_REGISTERED = 'You are already registered!';
 
     // Error Messages

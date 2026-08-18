@@ -3,13 +3,14 @@
 use PHPUnit\Framework\TestCase;
 use App\Service\CsrfService;
 use App\Service\SessionService;
+use App\Enum\SessionKey;
 use PHPUnit\Framework\MockObject\MockObject;
 
 class CsrfServiceTest extends TestCase
 {
     private MockObject|SessionService $sessionMock;
     private CsrfService $csrfService;
-    private const SESSION_KEY = 'csrf_token';
+    private const SESSION_KEY = SessionKey::CSRF_TOKEN;
 
     protected function setUp(): void
     {

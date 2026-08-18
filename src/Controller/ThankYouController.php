@@ -9,13 +9,14 @@ use App\Service\UserInfoService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use App\Enum\SessionKey;
 
 class ThankYouController extends BaseController
 {
     // Session Keys
-    public const SESSION_REG_ID = 'reg_id';
-    public const SESSION_PHONE_DATA = 'phone_data';
-    public const SESSION_OTP_TOKEN = 'otp_token';
+    public const SESSION_REG_ID = SessionKey::REG_ID->value;
+    public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
+    public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
 
     private array $config;
     private ?FacebookCapiService $capiService;

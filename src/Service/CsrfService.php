@@ -3,10 +3,12 @@
 
 namespace App\Service;
 
+use App\Enum\SessionKey;
+
 class CsrfService
 {
     private SessionService $session;
-    private const SESSION_KEY = 'csrf_token';
+    public const SESSION_KEY = 'csrf_token';
 
     public function __construct(SessionService $session)
     {
@@ -18,11 +20,11 @@ class CsrfService
      */
     public function getToken(): string
     {
-        if (!$this->session->has(self::SESSION_KEY)) {
+        if (!$this->session->has(SessionKey::CSRF_TOKEN)) {
             $token = bin2hex(random_bytes(32));
-            $this->session->set(self::SESSION_KEY, $token);
+            $this->session->set(SessionKey::CSRF_TOKEN, $token);
         }
-        return $this->session->get(self::SESSION_KEY);
+        return $this->session->get(SessionKey::CSRF_TOKEN);
     }
 
     /**
@@ -30,11 +32,11 @@ class CsrfService
      */
     public function validate(?string $token): bool
     {
-        if (empty($token) || !$this->session->has(self::SESSION_KEY)) {
+        if (empty($token) || !$this->session->has(SessionKey::CSRF_TOKEN)) {
             return false;
         }
 
-        return hash_equals($this->session->get(self::SESSION_KEY), $token);
+        return hash_equals((string) $this->session->get(SessionKey::CSRF_TOKEN), $token);
     }
 
     /**
@@ -43,7 +45,7 @@ class CsrfService
     public function regenerateToken(): string
     {
         $token = bin2hex(random_bytes(32));
-        $this->session->set(self::SESSION_KEY, $token);
+        $this->session->set(SessionKey::CSRF_TOKEN, $token);
         return $token;
     }
 }
