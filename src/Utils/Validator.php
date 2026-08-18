@@ -4,6 +4,7 @@
 namespace App\Utils;
 
 use Psr\Log\LoggerInterface;
+use App\DTO\PhoneNumber;
 
 /**
  * Handles input validation and normalization.
@@ -17,9 +18,9 @@ class Validator
      * @param string $rawPhone The phone number from user input.
      * @param array $carrierConfig The carrier config array from config/carriers.php
      * @param string $countryCode The country to validate against (e.g., 'LK', 'BD')
-     * @return array|null Returns structured data (telco_format, capi_format, platform, value) or null if invalid.
+     * @return PhoneNumber|null Returns PhoneNumber value object or null if invalid.
      */
-    public static function normalizePhone(string $rawPhone, array $carrierConfig, string $countryCode = 'LK', ?LoggerInterface $logger = null): ?array
+    public static function normalizePhone(string $rawPhone, array $carrierConfig, string $countryCode = 'LK', ?LoggerInterface $logger = null): ?PhoneNumber
     {
         // Country not configured
         if (!isset($carrierConfig[$countryCode])) {
@@ -58,21 +59,23 @@ class Validator
         }
 
         // 4. Determine conversion value
-        $value = $config['values']['default'];
+        $value = (float) $config['values']['default'];
         foreach ($config['prefixes'] as $carrier => $carrierPrefixes) {
             if (in_array($prefix, $carrierPrefixes)) {
                 // disable php warning
-                $value = $config['values'][$carrier] ?? $value;
+                $value = (float) ($config['values'][$carrier] ?? $value);
                 break;
             }
         }
 
-        return [
-            'telco_format' => $telco,      // For the OTP API
-            'capi_format' => $capi,       // For Facebook CAPI
-            'platform' => $platform,  // 'ideamart' or 'mspace'
-            'value' => $value         // 0.015, 0.01, etc.
-        ];
+        return new PhoneNumber(
+            rawNumber: $rawPhone,
+            telcoFormat: $telco,
+            capiFormat: $capi,
+            platform: $platform,
+            value: $value,
+            country: $countryCode
+        );
     }
 
     /**

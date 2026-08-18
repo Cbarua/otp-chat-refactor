@@ -6,6 +6,7 @@ namespace App\Service;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\RequestException;
 use Psr\Log\LoggerInterface;
+use App\DTO\OtpVerificationToken;
 
 /**
  * Manages all communication with the third-party OTP provider.
@@ -70,13 +71,13 @@ class OtpApiService implements OtpApiInterface
                 // Return a structured success response with the token
                 return [
                     'status' => 'success',
-                    'verificationToken' => [
-                        'referenceNo' => $response['referenceNo'],
-                        'usedApiUrl' => $baseUrl,
-                        'failedUrls' => $failedUrls,
-                        'platform' => $platform, // Include platform for fallback logic
-                        'createdAt' => time() // Add timestamp for expiry check
-                    ],
+                    'verificationToken' => new OtpVerificationToken(
+                        referenceNo: (string) $response['referenceNo'],
+                        usedApiUrl: $baseUrl,
+                        platform: $platform,
+                        createdAt: time(),
+                        failedUrls: $failedUrls
+                    ),
                     'originalResponse' => $response
                 ];
             }

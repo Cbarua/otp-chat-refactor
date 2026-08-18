@@ -16,6 +16,7 @@ use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Enum\SessionKey;
 use App\Enum\ApiStatus;
+use App\DTO\PhoneNumber;
 
 class FormController extends BaseController
 {
@@ -309,7 +310,7 @@ class FormController extends BaseController
     /**
      * Handles the final API response after attempting to get an OTP.
      */
-    private function handleOtpApiResponse(Request $request, array $response, array $phoneData): Response
+    private function handleOtpApiResponse(Request $request, array $response, PhoneNumber|array $phoneData): Response
     {
         $isAjax = $request->isXmlHttpRequest();
 
