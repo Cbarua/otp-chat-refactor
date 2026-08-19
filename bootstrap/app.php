@@ -31,6 +31,7 @@ use App\Service\SessionIdProcessor;
 use App\Service\UserInfoService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\OtpFlowService;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
@@ -154,6 +155,18 @@ $container['AnalyticsTrackerService'] = function ($c) {
     );
 };
 
+// OTP Flow Service
+$container['OtpFlowService'] = function ($c) {
+    return new OtpFlowService(
+        $c['config'],
+        $c['OtpApiService'],
+        $c['AnalyticsTrackerService'],
+        $c['Logger'],
+        $c['SessionService'],
+        $c['RateLimiterService']
+    );
+};
+
 
 // 6. Manage Long-Lived Visitor ID
 /** @var \App\Service\SessionService $session */
@@ -207,12 +220,11 @@ $container['FormController'] = function ($c) {
 $container['OtpController'] = function ($c) {
     return new OtpController(
         $c['config'],
-        $c['OtpApiService'],
+        $c['OtpFlowService'],
         $c['AnalyticsTrackerService'],
         $c['Logger'],
         $c['SessionService'],
-        $c['CsrfService'],
-        $c['RateLimiterService']
+        $c['CsrfService']
     );
 };
 

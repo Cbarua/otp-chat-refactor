@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-namespace App\Controller;
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
@@ -15,6 +14,7 @@ use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Service\AnalyticsTrackerService;
 use App\Service\UserLoggerInterface;
+use App\Service\OtpFlowService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -56,6 +56,7 @@ class OtpControllerTest extends TestCase
     private MockObject|RateLimiterService $rateLimiterMock;
     private MockObject|UserLoggerInterface $userLoggerMock;
     private AnalyticsTrackerService $analyticsTracker;
+    private OtpFlowService $otpFlowService;
 
     private array $sessionData;
     private const PRIMARY_API_URL = 'https://mock.api/primary.php';
@@ -113,14 +114,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $this->controller = new TestableOtpController(
+        $this->otpFlowService = new OtpFlowService(
             $this->config,
             $this->otpServiceMock,
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $this->controller = new TestableOtpController(
+            $this->config,
+            $this->otpFlowService,
+            $this->analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
     }
 
@@ -191,14 +200,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $controller = new TestableOtpController(
+        $otpFlowServiceWithoutCapi = new OtpFlowService(
             $this->config,
             $this->otpServiceMock,
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $controller = new TestableOtpController(
+            $this->config,
+            $otpFlowServiceWithoutCapi,
+            $analyticsTrackerWithoutCapi,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
 
         $request = Request::createFromGlobals();
@@ -557,14 +574,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $controller = new TestableOtpController(
+        $otpFlowService = new OtpFlowService(
             $configNoSms,
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $otpFlowService,
+            $analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
 
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
@@ -597,14 +622,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $controller = new TestableOtpController(
+        $otpFlowService = new OtpFlowService(
             $configNoSms,
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $otpFlowService,
+            $analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
 
         $this->sessionData = [
@@ -986,14 +1019,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $controller = new TestableOtpController(
+        $otpFlowService = new OtpFlowService(
             $configNoSms,
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $otpFlowService,
+            $analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
 
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
@@ -1025,14 +1066,22 @@ class OtpControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $controller = new TestableOtpController(
+        $otpFlowService = new OtpFlowService(
             $configNoSms,
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $controller = new TestableOtpController(
+            $configNoSms,
+            $otpFlowService,
+            $analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
 
         $this->sessionData = [
