@@ -266,7 +266,7 @@ final class PhoneFormAjaxCest
         for ($i = 1; $i <= 6; $i++) {
             $I->fillField('mobile', '0781234561');
             $I->click('Register');
-            $I->wait(1);
+            $I->wait(2);
         }
 
         $I->seeInCurrentUrl('/');

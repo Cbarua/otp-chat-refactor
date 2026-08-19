@@ -117,11 +117,11 @@ class OtpApiService implements OtpApiInterface
     /**
      * Verifies an OTP with the provider using a token from the getOtp call.
      *
-     * @param array $verificationToken The data bundle from a successful getOtp call.
+     * @param array|\ArrayAccess $verificationToken The data bundle from a successful getOtp call.
      * @param string $otp The 6-digit user-provided OTP
      * @return array The JSON response as an array
      */
-    public function verifyOtp(array $verificationToken, string $otp): array
+    public function verifyOtp(array|\ArrayAccess $verificationToken, string $otp): array
     {
         $baseUrl = $verificationToken['usedApiUrl'] ?? null;
         $referenceNo = $verificationToken['referenceNo'] ?? null;

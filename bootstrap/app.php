@@ -38,12 +38,12 @@ use App\Utils\OrderedJsonFormatter;
 use App\Database\DatabaseConnectionFactory;
 use GuzzleHttp\Client;
 
-// 1. Start Session
-// Must be called before any output.
-session_start();
-
-// 2. Load Composer Autoloader
+// 1. Load Composer Autoloader
 require_once __DIR__ . '/../vendor/autoload.php';
+
+// 2. Start Session
+// Must be called after autoloader so serialized DTOs/classes in session can be autoloaded.
+session_start();
 
 // 3. Create the DI Container
 $container = new Container();

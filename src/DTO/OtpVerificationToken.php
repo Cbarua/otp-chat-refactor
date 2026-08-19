@@ -44,6 +44,20 @@ class OtpVerificationToken implements ArrayAccess, JsonSerializable
         return (time() - $this->createdAt) > $ttlSeconds;
     }
 
+    /**
+     * Returns a new instance with updated failedUrls.
+     */
+    public function withFailedUrls(array $failedUrls): self
+    {
+        return new self(
+            referenceNo: $this->referenceNo,
+            usedApiUrl: $this->usedApiUrl,
+            platform: $this->platform,
+            createdAt: $this->createdAt,
+            failedUrls: $failedUrls
+        );
+    }
+
     public function toArray(): array
     {
         return [

@@ -68,8 +68,8 @@ class OtpController extends BaseController
         mixed $loggerOrSession = null,
         mixed $userInfoOrCsrf = null,
         mixed $sessionOrRateLimiter = null,
-        ?CsrfService $csrfService = null,
-        ?RateLimiterService $rateLimiter = null
+        mixed $csrfService = null,
+        mixed $rateLimiter = null
     ) {
         $this->config = $config;
         $this->otpService = $otpService;
@@ -206,7 +206,7 @@ class OtpController extends BaseController
         }
 
         $token = $this->session->get(self::SESSION_OTP_TOKEN);
-        if (!is_array($token)) {
+        if (!is_array($token) && !($token instanceof \ArrayAccess)) {
             $this->logger->error('Invalid OTP token structure in session.', ['token_type' => gettype($token)]);
             if ($request->isXmlHttpRequest()) {
                 return $this->json(['status' => 'error', 'message' => 'Session expired. Please try again.', 'redirect' => './']);
@@ -217,7 +217,7 @@ class OtpController extends BaseController
         return null;
     }
 
-    private function processOtp(Request $request, array $token): Response
+    private function processOtp(Request $request, array|\ArrayAccess $token): Response
     {
         $rawOtp = $request->request->get('otp', '');
         $isAjax = $request->isXmlHttpRequest();
@@ -333,7 +333,7 @@ class OtpController extends BaseController
     /**
      * Processes the API response after an OTP verification attempt.
      */
-    private function handleVerificationResponse(Request $request, array $response, array $token): Response
+    private function handleVerificationResponse(Request $request, array $response, array|\ArrayAccess $token): Response
     {
         $isAjax = $request->isXmlHttpRequest();
         $responseStatus = $response['status'] ?? null;
@@ -466,7 +466,7 @@ class OtpController extends BaseController
      * 
      * @param bool $isRateLimit Whether this fallback is triggered by a rate limit exhaustion.
      */
-    private function handleFailedVerification(Request $request, array $token, bool $isRateLimit = false): Response
+    private function handleFailedVerification(Request $request, array|\ArrayAccess $token, bool $isRateLimit = false): Response
     {
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $subscriberId = $phoneData['telco_format'] ?? null;
@@ -534,7 +534,11 @@ class OtpController extends BaseController
     private function handleFallbackSuccess(Request $request, array $response, array $allFailedUrls): Response
     {
         $newToken = $response['verificationToken'];
-        $newToken['failedUrls'] = $allFailedUrls;
+        if ($newToken instanceof \App\DTO\OtpVerificationToken) {
+            $newToken = $newToken->withFailedUrls($allFailedUrls);
+        } else {
+            $newToken['failedUrls'] = $allFailedUrls;
+        }
 
         $this->logger->info(
             'Successfully received new OTP from a fallback URL.',
@@ -605,12 +609,15 @@ class OtpController extends BaseController
      * Handles an expired OTP token by attempting to retrieve a new one.
      *
      * @param Request $request The current HTTP request object.
-     * @param array $token The expired OTP token.
+     * @param array|\ArrayAccess $token The expired OTP token.
      * @return Response The response to redirect to.
      */
-    private function handleExpiredToken(Request $request, array $token): Response
+    private function handleExpiredToken(Request $request, array|\ArrayAccess $token): Response
     {
-        ['usedApiUrl' => $usedUrl, 'referenceNo' => $refNo, 'createdAt' => $createdAt, 'platform' => $platform] = $token;
+        $usedUrl = $token['usedApiUrl'] ?? null;
+        $refNo = $token['referenceNo'] ?? null;
+        $createdAt = $token['createdAt'] ?? time();
+        $platform = $token['platform'] ?? null;
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
         $subscriberId = $phoneData['telco_format'] ?? null;
         $platform ??= $phoneData['platform'] ?? null;

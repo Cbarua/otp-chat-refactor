@@ -222,7 +222,7 @@ class FormController extends BaseController
         // Check if phone matches and token is valid (less than 5 minutes old)
         $isSameNumber = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
         $isRecent = false;
-        if (is_array($existingToken)) {
+        if (is_array($existingToken) || $existingToken instanceof \ArrayAccess) {
             $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
             $tokenAge = time() - $tokenCreatedAt;
             $isRecent = $tokenAge < 300;

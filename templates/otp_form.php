@@ -103,7 +103,7 @@
                     errorDiv.style.display = "block";
 
                     setTimeout(() => {
-                        window.location.href = data.redirect;
+                        window.location.href = data.redirect === './' ? '/' : data.redirect;
                     }, 2000);
                 } else {
                     // Show Error

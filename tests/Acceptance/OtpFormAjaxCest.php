@@ -286,7 +286,7 @@ final class OtpFormAjaxCest
 
         $I->fillField('otp', '111111');
         $I->click('Verify');
-        $I->wait(1);
+        $I->wait(2);
 
         // Shows error on /otp page first
         $I->see('An error occurred. Please try again later.', '#otpError');
