@@ -11,6 +11,8 @@ use App\Controller\ThankYouController;
 use App\Service\FacebookCapiService;
 use App\Service\SessionService;
 use App\Service\UserInfoService;
+use App\Service\UserLoggerInterface;
+use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -46,6 +48,8 @@ class ThankYouControllerTest extends TestCase
     private MockObject|LoggerInterface $loggerMock;
     private MockObject|UserInfoService $userInfoServiceMock;
     private MockObject|SessionService $sessionServiceMock;
+    private MockObject|UserLoggerInterface $userLoggerMock;
+    private AnalyticsTrackerService $analyticsTracker;
     private array $sessionData;
 
     protected function setUp(): void
@@ -63,18 +67,41 @@ class ThankYouControllerTest extends TestCase
         $this->loggerMock = $this->createMock(LoggerInterface::class);
         $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
         $this->sessionServiceMock = $this->createMock(SessionService::class);
+        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
 
         $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
-        $this->sessionServiceMock->method('get')->willReturnCallback(fn(string $key, $default = null) => $this->sessionData[$key] ?? $default);
-        $this->sessionServiceMock->method('set')->willReturnCallback(function (string $key, $value): void {
-            $this->sessionData[$key] = $value;
+        $this->sessionServiceMock->method('get')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $default = null) {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return $this->sessionData[$k] ?? $default;
         });
-        $this->sessionServiceMock->method('has')->willReturnCallback(fn(string $key): bool => isset($this->sessionData[$key]));
-        $this->sessionServiceMock->method('unset')->willReturnCallback(function (string $key): void {
-            unset($this->sessionData[$key]);
+        $this->sessionServiceMock->method('set')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $value): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            $this->sessionData[$k] = $value;
+        });
+        $this->sessionServiceMock->method('has')->willReturnCallback(function (\App\Enum\SessionKey|string $key): bool {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return isset($this->sessionData[$k]);
+        });
+        $this->sessionServiceMock->method('unset')->willReturnCallback(function (\App\Enum\SessionKey|string $key): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            unset($this->sessionData[$k]);
         });
 
-        $this->controller = new TestableThankYouController($this->config, $this->capiServiceMock, $this->loggerMock, $this->userInfoServiceMock, $this->sessionServiceMock);
+        $this->analyticsTracker = new AnalyticsTrackerService(
+            $this->config,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
+        $this->controller = new TestableThankYouController(
+            $this->config,
+            $this->analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock
+        );
     }
 
     protected function tearDown(): void
@@ -118,7 +145,7 @@ class ThankYouControllerTest extends TestCase
                 } elseif ($eventName === 'CompleteRegistration') {
                     $this->assertEquals('reg-test-12345', $eventId);
                     $this->assertEquals('94771234567', $userData['phone']);
-                    $this->assertEquals(['currency' => 'USD', 'value' => 5.0], $customData);
+                    $this->assertEquals(['currency' => 'USD', 'value' => '5'], $customData);
                 }
                 return [];
             });
@@ -128,7 +155,7 @@ class ThankYouControllerTest extends TestCase
         $this->assertEquals('thanks', $this->controller->renderedView);
         $this->assertNull($this->controller->redirectUrl);
         $this->assertEquals('reg-test-12345', $this->controller->renderData['regId']);
-        $this->assertJsonStringEqualsJsonString('{"currency":"USD","value":5.0}', $this->controller->renderData['eventData']);
+        $this->assertJsonStringEqualsJsonString('{"currency":"USD","value":"5"}', $this->controller->renderData['eventData']);
         $this->assertEquals('v_test123', $this->controller->renderData['externalId']);
         $this->assertEquals('lk', $this->controller->renderData['country']);
 
@@ -137,8 +164,8 @@ class ThankYouControllerTest extends TestCase
         $this->assertArrayNotHasKey('otp_token', $this->sessionData);
 
         // lead_id is NOT cleared by the controller, so we expect it to remain or we just don't check it.
-        // If we want to be strict about what IS cleared:
         $this->assertArrayHasKey('lead_id', $this->sessionData);
         $this->assertArrayHasKey('phone_data', $this->sessionData);
     }
 }
+

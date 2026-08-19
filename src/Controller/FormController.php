@@ -3,11 +3,8 @@
 
 namespace App\Controller;
 
-use App\Service\FacebookCapiService;
 use App\Service\OtpApiInterface;
 use App\Service\SessionService;
-use App\Service\UserLoggerInterface;
-use App\Service\UserInfoService;
 use App\Utils\Validator;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -47,60 +44,16 @@ class FormController extends BaseController
     private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
     private const ERROR_CSRF = 'Security check failed. Please try again.';
 
-    private array $config;
-    private array $carrierConfig;
-    private ?FacebookCapiService $capiService;
-    private OtpApiInterface $otpService;
-    private UserLoggerInterface $userLogger;
-    private LoggerInterface $logger;
-    private UserInfoService $userInfoService;
-    private SessionService $session;
-    private CsrfService $csrfService;
-    private RateLimiterService $rateLimiter;
-    private AnalyticsTrackerService $analyticsTracker;
-
     public function __construct(
-        array $config,
-        array $carrierConfig,
-        OtpApiInterface $otpService,
-        AnalyticsTrackerService|UserLoggerInterface $analyticsOrUserLogger,
-        mixed $capiOrLogger = null,
-        mixed $loggerOrSession = null,
-        mixed $userInfoOrCsrf = null,
-        mixed $sessionOrRateLimiter = null,
-        ?CsrfService $csrfService = null,
-        ?RateLimiterService $rateLimiter = null
+        private array $config,
+        private array $carrierConfig,
+        private OtpApiInterface $otpService,
+        private AnalyticsTrackerService $analyticsTracker,
+        private LoggerInterface $logger,
+        private SessionService $session,
+        private CsrfService $csrfService,
+        private RateLimiterService $rateLimiter
     ) {
-        $this->config = $config;
-        $this->carrierConfig = $carrierConfig;
-        $this->otpService = $otpService;
-
-        if ($analyticsOrUserLogger instanceof AnalyticsTrackerService) {
-            $this->analyticsTracker = $analyticsOrUserLogger;
-            $this->logger = $capiOrLogger;
-            $this->session = $loggerOrSession;
-            $this->csrfService = $userInfoOrCsrf;
-            $this->rateLimiter = $sessionOrRateLimiter;
-            $this->capiService = $analyticsOrUserLogger->getCapiService();
-            $this->userLogger = $analyticsOrUserLogger->getUserLogger();
-            $this->userInfoService = $analyticsOrUserLogger->getUserInfoService();
-        } else {
-            $this->userLogger = $analyticsOrUserLogger;
-            $this->capiService = $capiOrLogger;
-            $this->logger = $loggerOrSession;
-            $this->userInfoService = $userInfoOrCsrf;
-            $this->session = $sessionOrRateLimiter;
-            $this->csrfService = $csrfService;
-            $this->rateLimiter = $rateLimiter;
-            $this->analyticsTracker = new AnalyticsTrackerService(
-                $config,
-                $capiOrLogger,
-                $userInfoOrCsrf,
-                $this->session,
-                $analyticsOrUserLogger,
-                $this->logger
-            );
-        }
     }
 
     /**
@@ -108,7 +61,15 @@ class FormController extends BaseController
      */
     public function showPhoneForm(Request $request): Response
     {
-        $this->trackVisit($request);
+        $isInitialVisit = !($this->session->has(self::SESSION_ALREADY_REGISTERED) || $this->session->has(self::SESSION_ERROR));
+        $this->analyticsTracker->trackPageView(
+            $request,
+            '/',
+            'pgview-',
+            null,
+            $isInitialVisit,
+            true
+        );
 
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
 
@@ -146,7 +107,7 @@ class FormController extends BaseController
      */
     public function handlePhoneForm(Request $request): Response
     {
-        $userInfo = $this->userInfoService->get($request);
+        $userInfo = $this->analyticsTracker->getUserInfo($request);
         $rawPhone = $request->request->get('mobile', '');
         $isAjax = $request->isXmlHttpRequest();
 
@@ -210,9 +171,7 @@ class FormController extends BaseController
         }
 
         // 3. Log visit with phone, store FB cookies
-        $this->userLogger->logVisit($this->session->get(self::SESSION_VISITOR_ID), $userInfo['ip'], $userInfo['useragent'], $phoneData['capi_format']);
-        $this->session->set(self::SESSION_FBP, $request->request->get('fbp'));
-        $this->session->set(self::SESSION_FBC, $request->request->get('fbc'));
+        $this->analyticsTracker->logVisitWithPhone($request, $phoneData);
 
         // 4. Request OTP from the API. The service now handles platform-specific endpoints.
         // Check if we have a valid recent OTP for this number to avoid redundant calls
@@ -247,86 +206,6 @@ class FormController extends BaseController
 
         // 5. Handle the final API response
         return $this->handleOtpApiResponse($request, $response, $phoneData);
-    }
-
-    /**
-     * Fires PageView events and logs the user visit.
-     */
-    private function trackVisit(Request $request): void
-    {
-        $isInitialVisit = !($this->session->has(self::SESSION_ALREADY_REGISTERED) ||$this->session->has(self::SESSION_ERROR));
-
-        $userInfo = $this->userInfoService->get($request);
-        $this->logger->info('New page visit. /', $userInfo);
-
-        // 1. Log the initial anonymous visit to our own DB.
-        if ($isInitialVisit) {
-            $this->userLogger->logVisit(
-                $this->session->get(self::SESSION_VISITOR_ID),
-                $userInfo['ip'],
-                $userInfo['useragent']
-            );
-        }
-
-        // 2. Handle CAPI logic. Exit if CAPI is not configured.
-        if ($this->capiService === null) {
-            return;
-        }
-
-        // Only fire a new PageView for initial visit or already registered error.
-        // Skip if there is any other error (Invalid Phone, Rate Limit, CSRF, Generic).
-        if ($this->session->has(self::SESSION_ERROR)) {
-            $this->logger->notice('Rendering / to display error, skipping new PageView.', ['error' => $this->session->get(self::SESSION_ERROR)]);
-            return;
-        }
-
-        // For all other cases (initial visit, or redirect after "already registered"), fire PageView.
-        $pageViewEventId = $this->generateRandomId("pgview-");
-        $this->session->set(self::SESSION_PAGE_VIEW_ID, $pageViewEventId);
-
-        $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
-        $phoneForMatching = $phoneData['capi_format'] ?? null;
-        $visitorId = $this->session->get(self::SESSION_VISITOR_ID);
-
-        // processRequest returns array ['fbc' => ..., 'fbp' => ...]
-        $capiParams = $this->capiService->processRequest($request);
-
-        $fbc = $capiParams['fbc'] ?? null;
-        $fbp = $capiParams['fbp'] ?? null;
-        $clientIpAddress = $capiParams['client_ip_address'] ?? null;
-
-        // Store in session for subsequent events (OTP, Lead)
-        if ($fbc) {
-            $this->session->set(self::SESSION_FBC, $fbc);
-        }
-        if ($fbp) {
-            $this->session->set(self::SESSION_FBP, $fbp);
-        }
-
-        $userDataArray = [
-            'ip' => $clientIpAddress ?? $userInfo['ip'],
-            'agent' => $userInfo['useragent'],
-            'phone' => $phoneForMatching,
-            'fbp' => $fbp,
-            'fbc' => $fbc,
-            'external_id' => $visitorId,
-        ];
-
-        // Only add country if we have a valid phone number (implies local user)
-        if (!empty($phoneForMatching)) {
-            $userDataArray['country'] = 'lk';
-        }
-
-        $this->capiService->sendEvent(
-            'PageView',
-            $pageViewEventId,
-            $request->getUri(),
-            $userDataArray
-        );
-        $this->logger->info('New PageView triggered. /', [
-            'page_view_id' => $pageViewEventId,
-            'phone_for_matching' => $phoneForMatching
-        ]);
     }
 
     /**

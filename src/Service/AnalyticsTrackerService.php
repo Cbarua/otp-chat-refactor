@@ -48,6 +48,8 @@ class AnalyticsTrackerService
      * @param string $prefix e.g. 'pgview-' or 'pgview-otp-'
      * @param PhoneNumber|array|null $phoneData
      * @param bool $logVisitToDb
+     * @param bool $skipOnError If true and SessionKey::ERROR exists in session, skips CAPI event.
+     * @param string|SessionKey|null $sessionKey Session key to store the event ID under. Defaults to SessionKey::PAGE_VIEW_ID.
      * @return string|null The PageView event ID or null if skipped.
      */
     public function trackPageView(
@@ -55,7 +57,9 @@ class AnalyticsTrackerService
         string $pageRoute,
         string $prefix = 'pgview-',
         PhoneNumber|array|null $phoneData = null,
-        bool $logVisitToDb = false
+        bool $logVisitToDb = false,
+        bool $skipOnError = false,
+        string|SessionKey|null $sessionKey = null
     ): ?string {
         $userInfo = $this->getUserInfo($request);
         $this->logger->info("New page visit. {$pageRoute}", $userInfo);
@@ -70,6 +74,13 @@ class AnalyticsTrackerService
         }
 
         if ($this->capiService === null) {
+            return null;
+        }
+
+        if ($skipOnError && $this->session->has(SessionKey::ERROR_MESSAGE)) {
+            $this->logger->notice("Rendering {$pageRoute} to display error, skipping new PageView.", [
+                'error' => $this->session->get(SessionKey::ERROR_MESSAGE)
+            ]);
             return null;
         }
 
@@ -98,8 +109,11 @@ class AnalyticsTrackerService
             'fbp' => $fbp ?? $this->session->get(SessionKey::FBP),
             'fbc' => $fbc ?? $this->session->get(SessionKey::FBC),
             'external_id' => $visitorId,
-            'country' => 'lk',
         ];
+
+        if (!empty($phoneForMatching)) {
+            $userDataArray['country'] = 'lk';
+        }
 
         $this->capiService->sendEvent(
             'PageView',
@@ -108,12 +122,42 @@ class AnalyticsTrackerService
             $userDataArray
         );
 
+        $targetSessionKey = $sessionKey ?? SessionKey::PAGE_VIEW_ID;
+        $this->session->set($targetSessionKey, $pageViewEventId);
+
         $this->logger->info("New PageView triggered. {$pageRoute}", [
             'page_view_id' => $pageViewEventId,
             'phone_for_matching' => $phoneForMatching
         ]);
 
         return $pageViewEventId;
+    }
+
+    /**
+     * Logs a visit associated with a validated phone number and stores FB cookies in the session.
+     */
+    public function logVisitWithPhone(Request $request, PhoneNumber|array $phoneData): void
+    {
+        $userInfo = $this->getUserInfo($request);
+        $visitorId = $this->getVisitorId();
+        $phoneCapi = $phoneData['capi_format'] ?? null;
+
+        $this->userLogger->logVisit(
+            $visitorId,
+            $userInfo['ip'],
+            $userInfo['useragent'],
+            $phoneCapi
+        );
+
+        $fbp = $request->request->get('fbp');
+        $fbc = $request->request->get('fbc');
+
+        if ($fbp !== null) {
+            $this->session->set(SessionKey::FBP, $fbp);
+        }
+        if ($fbc !== null) {
+            $this->session->set(SessionKey::FBC, $fbc);
+        }
     }
 
     /**

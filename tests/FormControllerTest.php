@@ -26,6 +26,7 @@ use App\Service\UserInfoService;
 use App\Service\SessionService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -72,6 +73,7 @@ class FormControllerTest extends TestCase
     private MockObject|SessionService $sessionServiceMock;
     private MockObject|CsrfService $csrfServiceMock;
     private MockObject|RateLimiterService $rateLimiterMock;
+    private AnalyticsTrackerService $analyticsTracker;
     private array $sessionData;
 
     protected function setUp(): void
@@ -108,29 +110,40 @@ class FormControllerTest extends TestCase
 
         $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
 
-        $this->sessionServiceMock->method('get')->willReturnCallback(function (string $key, $default = null) {
-            return $this->sessionData[$key] ?? $default;
+        $this->sessionServiceMock->method('get')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $default = null) {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return $this->sessionData[$k] ?? $default;
         });
-        $this->sessionServiceMock->method('set')->willReturnCallback(function (string $key, $value): void {
-            $this->sessionData[$key] = $value;
+        $this->sessionServiceMock->method('set')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $value): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            $this->sessionData[$k] = $value;
         });
-        $this->sessionServiceMock->method('has')->willReturnCallback(function (string $key): bool {
-            return isset($this->sessionData[$key]);
+        $this->sessionServiceMock->method('has')->willReturnCallback(function (\App\Enum\SessionKey|string $key): bool {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return isset($this->sessionData[$k]);
         });
-        $this->sessionServiceMock->method('unset')->willReturnCallback(function (string $key): void {
-            unset($this->sessionData[$key]);
+        $this->sessionServiceMock->method('unset')->willReturnCallback(function (\App\Enum\SessionKey|string $key): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            unset($this->sessionData[$k]);
         });
 
         $this->sessionData[FormController::SESSION_VISITOR_ID] = 'v_test123';
+
+        $this->analyticsTracker = new AnalyticsTrackerService(
+            $this->config,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
 
         $this->controller = new TestableFormController(
             $this->config,
             $this->carrierConfig,
             $this->otpServiceMock,
-            $this->userLoggerMock,
-            $this->capiServiceMock,
+            $this->analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -407,14 +420,21 @@ class FormControllerTest extends TestCase
 
     public function testShowPhoneFormCapiServiceNull(): void
     {
+        $analyticsTrackerWithoutCapi = new AnalyticsTrackerService(
+            $this->config,
+            null,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableFormController(
             $this->config,
             $this->carrierConfig,
             $this->otpServiceMock,
-            $this->userLoggerMock,
-            null, // capiService is null
+            $analyticsTrackerWithoutCapi,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -545,14 +565,21 @@ class FormControllerTest extends TestCase
             'keyword' => 'REG'
         ];
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configWithSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableFormController(
             $configWithSms,
             $this->carrierConfig,
             $this->otpServiceMock,
-            $this->userLoggerMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -740,14 +767,21 @@ class FormControllerTest extends TestCase
             'keyword' => 'REG'
         ];
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configWithSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableFormController(
             $configWithSms,
             $this->carrierConfig,
             $this->otpServiceMock,
-            $this->userLoggerMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -802,14 +836,21 @@ class FormControllerTest extends TestCase
             'keyword' => 'REG'
         ];
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configWithSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableFormController(
             $configWithSms,
             $this->carrierConfig,
             $this->otpServiceMock,
-            $this->userLoggerMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock

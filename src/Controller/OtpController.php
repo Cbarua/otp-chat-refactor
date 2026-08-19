@@ -5,10 +5,8 @@ namespace App\Controller;
 
 use App\Service\OtpApiInterface;
 use App\Service\SessionService;
-use App\Service\UserInfoService;
 use App\Utils\Validator;
 use Psr\Log\LoggerInterface;
-use App\Service\FacebookCapiService;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
@@ -51,45 +49,15 @@ class OtpController extends BaseController
     // Platforms
     public const PLATFORM_MSPACE = 'mspace';
 
-    private array $config;
-    private OtpApiInterface $otpService;
-    private LoggerInterface $logger;
-    private ?FacebookCapiService $capiService;
-    private UserInfoService $userInfoService;
-    private SessionService $session;
-    private CsrfService $csrfService;
-    private RateLimiterService $rateLimiter;
-    private ?AnalyticsTrackerService $analyticsTracker = null;
-
     public function __construct(
-        array $config,
-        OtpApiInterface $otpService,
-        AnalyticsTrackerService|FacebookCapiService|null $analyticsOrCapi,
-        mixed $loggerOrSession = null,
-        mixed $userInfoOrCsrf = null,
-        mixed $sessionOrRateLimiter = null,
-        mixed $csrfService = null,
-        mixed $rateLimiter = null
+        private array $config,
+        private OtpApiInterface $otpService,
+        private AnalyticsTrackerService $analyticsTracker,
+        private LoggerInterface $logger,
+        private SessionService $session,
+        private CsrfService $csrfService,
+        private RateLimiterService $rateLimiter
     ) {
-        $this->config = $config;
-        $this->otpService = $otpService;
-
-        if ($analyticsOrCapi instanceof AnalyticsTrackerService) {
-            $this->analyticsTracker = $analyticsOrCapi;
-            $this->logger = $loggerOrSession;
-            $this->session = $userInfoOrCsrf;
-            $this->csrfService = $sessionOrRateLimiter;
-            $this->rateLimiter = $csrfService;
-            $this->capiService = $analyticsOrCapi->getCapiService();
-            $this->userInfoService = $analyticsOrCapi->getUserInfoService();
-        } else {
-            $this->capiService = $analyticsOrCapi;
-            $this->logger = $loggerOrSession;
-            $this->userInfoService = $userInfoOrCsrf;
-            $this->session = $sessionOrRateLimiter;
-            $this->csrfService = $csrfService;
-            $this->rateLimiter = $rateLimiter;
-        }
     }
 
     /**
@@ -97,7 +65,7 @@ class OtpController extends BaseController
      */
     public function showOtpForm(Request $request): Response
     {
-        $userInfo = $this->userInfoService->get($request);
+        $userInfo = $this->analyticsTracker->getUserInfo($request);
 
         // Security Check: Ensure user has a token from the previous step.
         if (!$this->session->has(self::SESSION_OTP_TOKEN)) {
@@ -105,15 +73,21 @@ class OtpController extends BaseController
             return $this->redirect('./');
         }
 
-        $this->logger->info('New page visit. /otp', $userInfo);
-
-        if ($this->capiService !== null) {
-            // Handles pageview and lead events
-            // Sets event ids needed for the view
-            $this->handleCapiEvents($request);
-        }
+        $this->analyticsTracker->trackPageView(
+            $request,
+            '/otp',
+            'pgview-otp-',
+            null,
+            false,
+            true,
+            self::SESSION_PAGE_VIEW_ID
+        );
 
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
+        if ($this->session->has(self::SESSION_LEAD_ID) && isset($phoneData['capi_format'])) {
+            $leadId = $this->session->get(self::SESSION_LEAD_ID);
+            $this->analyticsTracker->trackLead($request, $phoneData, $leadId);
+        }
 
         $smsNumber = $this->config['sms']['number'] ?? null;
         $smsKeyword = $this->config['sms']['keyword'] ?? null;
@@ -243,91 +217,6 @@ class OtpController extends BaseController
         ]);
 
         return $this->handleVerificationResponse($request, $response, $token);
-    }
-
-    /**
-     * Handles CAPI events for the OTP page view.
-     */
-    private function handleCapiEvents(Request $request): void
-    {
-        $userInfo = $this->userInfoService->get($request);
-        $this->handlePageViewEvent($request, $userInfo);
-        $this->handleLeadEvent($request, $userInfo);
-    }
-
-    private function handlePageViewEvent(Request $request, array $userInfo): void
-    {
-        $errorMessage = $this->session->get(self::SESSION_ERROR);
-
-        // Trigger PageView only if it's not a redirect showing an error
-        if (!isset($errorMessage)) {
-            $pageViewEventId = $this->generateRandomId('pgview-otp-');
-            $this->session->set(self::SESSION_PAGE_VIEW_ID, $pageViewEventId);
-
-            $visitorId = $this->session->get('visitor_id');
-            $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
-            $phoneForMatching = $phoneData['capi_format'] ?? null;
-
-            // Retrieve fbp/fbc from session (set in FormController)
-            $fbp = $this->session->get('fbp');
-            $fbc = $this->session->get('fbc');
-
-            $capiParams = $this->capiService->processRequest($request);
-            $clientIpAddress = $capiParams['client_ip_address'] ?? null;
-
-            $userDataArray = [
-                'ip' => $clientIpAddress ?? $userInfo['ip'],
-                'agent' => $userInfo['useragent'],
-                'phone' => $phoneForMatching,
-                'fbp' => $fbp,
-                'fbc' => $fbc,
-                'external_id' => $visitorId,
-                'country' => 'lk'
-            ];
-
-            $this->capiService->sendEvent('PageView', $pageViewEventId, $request->getUri(), $userDataArray);
-            $this->logger->info('New PageView triggered. /otp', ['page_view_id' => $pageViewEventId]);
-        } else {
-            $this->logger->notice('Rendering /otp to display error, skipping new PageView.', ['error' => $errorMessage]);
-        }
-    }
-
-    private function handleLeadEvent(Request $request, array $userInfo): void
-    {
-        $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
-        // Fire a pending Lead event if it exists
-        if ($this->session->has(self::SESSION_LEAD_ID) && isset($phoneData['capi_format'])) {
-
-            $visitorId = $this->session->get('visitor_id');
-            $phoneForMatching = $phoneData['capi_format'];
-
-            // Retrieve fbp/fbc from session
-            $fbp = $this->session->get('fbp');
-            $fbc = $this->session->get('fbc');
-
-            $capiParams = $this->capiService->processRequest($request);
-            $clientIpAddress = $capiParams['client_ip_address'] ?? null;
-
-            $userDataArray = [
-                'ip' => $clientIpAddress ?? $userInfo['ip'],
-                'agent' => $userInfo['useragent'],
-                'phone' => $phoneForMatching,
-                'fbp' => $fbp,
-                'fbc' => $fbc,
-                'external_id' => $visitorId,
-                'country' => 'lk'
-            ];
-
-            $leadId = $this->session->get(self::SESSION_LEAD_ID);
-            $this->capiService->sendEvent(
-                'Lead',
-                $leadId,
-                $request->getUri(),
-                $userDataArray
-            );
-            $this->logger->info('Lead event triggered.', ['lead_id' => $leadId]);
-            // Unset lead event id after data for view is prepared
-        }
     }
 
     /**
@@ -512,7 +401,7 @@ class OtpController extends BaseController
      */
     private function attemptFallback(string $platform, string $subscriberId, Request $request, array $allFailedUrls): array
     {
-        $userInfo = $this->userInfoService->get($request);
+        $userInfo = $this->analyticsTracker->getUserInfo($request);
         $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
 
         $this->logger->notice(

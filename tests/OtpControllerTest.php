@@ -13,6 +13,8 @@ use App\Service\SessionService;
 use App\Service\UserInfoService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
+use App\Service\AnalyticsTrackerService;
+use App\Service\UserLoggerInterface;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -52,6 +54,8 @@ class OtpControllerTest extends TestCase
     private MockObject|SessionService $sessionServiceMock;
     private MockObject|CsrfService $csrfServiceMock;
     private MockObject|RateLimiterService $rateLimiterMock;
+    private MockObject|UserLoggerInterface $userLoggerMock;
+    private AnalyticsTrackerService $analyticsTracker;
 
     private array $sessionData;
     private const PRIMARY_API_URL = 'https://mock.api/primary.php';
@@ -80,23 +84,40 @@ class OtpControllerTest extends TestCase
         $this->sessionServiceMock = $this->createMock(SessionService::class);
         $this->csrfServiceMock = $this->createMock(CsrfService::class);
         $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
+        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
 
         $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
-        $this->sessionServiceMock->method('get')->willReturnCallback(fn(string $key, $default = null) => $this->sessionData[$key] ?? $default);
-        $this->sessionServiceMock->method('set')->willReturnCallback(function (string $key, $value): void {
-            $this->sessionData[$key] = $value;
+        $this->sessionServiceMock->method('get')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $default = null) {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return $this->sessionData[$k] ?? $default;
         });
-        $this->sessionServiceMock->method('has')->willReturnCallback(fn(string $key): bool => isset($this->sessionData[$key]));
-        $this->sessionServiceMock->method('unset')->willReturnCallback(function (string $key): void {
-            unset($this->sessionData[$key]);
+        $this->sessionServiceMock->method('set')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $value): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            $this->sessionData[$k] = $value;
         });
+        $this->sessionServiceMock->method('has')->willReturnCallback(function (\App\Enum\SessionKey|string $key): bool {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            return isset($this->sessionData[$k]);
+        });
+        $this->sessionServiceMock->method('unset')->willReturnCallback(function (\App\Enum\SessionKey|string $key): void {
+            $k = $key instanceof \App\Enum\SessionKey ? $key->value : $key;
+            unset($this->sessionData[$k]);
+        });
+
+        $this->analyticsTracker = new AnalyticsTrackerService(
+            $this->config,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
 
         $this->controller = new TestableOtpController(
             $this->config,
             $this->otpServiceMock,
-            $this->capiServiceMock,
+            $this->analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -161,12 +182,20 @@ class OtpControllerTest extends TestCase
 
     public function testShowOtpFormNotFireEventsWhenCapiServiceNull(): void
     {
+        $analyticsTrackerWithoutCapi = new AnalyticsTrackerService(
+            $this->config,
+            null,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableOtpController(
             $this->config,
             $this->otpServiceMock,
-            null, // capiService is null
+            $analyticsTrackerWithoutCapi,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -519,12 +548,20 @@ class OtpControllerTest extends TestCase
         $configNoSms = $this->config;
         unset($configNoSms['sms']);
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configNoSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableOtpController(
             $configNoSms,
             $this->otpServiceMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -551,12 +588,20 @@ class OtpControllerTest extends TestCase
         $configNoSms = $this->config;
         unset($configNoSms['sms']);
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configNoSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableOtpController(
             $configNoSms,
             $this->otpServiceMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -932,12 +977,20 @@ class OtpControllerTest extends TestCase
         $configNoSms = $this->config;
         unset($configNoSms['sms']);
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configNoSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableOtpController(
             $configNoSms,
             $this->otpServiceMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock
@@ -963,12 +1016,20 @@ class OtpControllerTest extends TestCase
         $configNoSms = $this->config;
         unset($configNoSms['sms']);
 
+        $analyticsTracker = new AnalyticsTrackerService(
+            $configNoSms,
+            $this->capiServiceMock,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+
         $controller = new TestableOtpController(
             $configNoSms,
             $this->otpServiceMock,
-            $this->capiServiceMock,
+            $analyticsTracker,
             $this->loggerMock,
-            $this->userInfoServiceMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
             $this->rateLimiterMock

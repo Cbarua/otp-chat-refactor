@@ -3,9 +3,7 @@
 
 namespace App\Controller;
 
-use App\Service\FacebookCapiService;
 use App\Service\SessionService;
-use App\Service\UserInfoService;
 use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,33 +17,12 @@ class ThankYouController extends BaseController
     public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
     public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
 
-    private array $config;
-    private ?FacebookCapiService $capiService;
-    private LoggerInterface $logger;
-    private ?UserInfoService $userInfoService;
-    private SessionService $session;
-    private ?AnalyticsTrackerService $analyticsTracker = null;
-
     public function __construct(
-        array $config,
-        AnalyticsTrackerService|FacebookCapiService|null $analyticsOrCapi,
-        LoggerInterface $logger,
-        mixed $userInfoOrSession = null,
-        ?SessionService $sessionService = null
+        private array $config,
+        private AnalyticsTrackerService $analyticsTracker,
+        private LoggerInterface $logger,
+        private SessionService $session
     ) {
-        $this->config = $config;
-        $this->logger = $logger;
-
-        if ($analyticsOrCapi instanceof AnalyticsTrackerService) {
-            $this->analyticsTracker = $analyticsOrCapi;
-            $this->session = $userInfoOrSession;
-            $this->capiService = $analyticsOrCapi->getCapiService();
-            $this->userInfoService = $analyticsOrCapi->getUserInfoService();
-        } else {
-            $this->capiService = $analyticsOrCapi;
-            $this->userInfoService = $userInfoOrSession;
-            $this->session = $sessionService;
-        }
     }
 
     /**
@@ -60,62 +37,25 @@ class ThankYouController extends BaseController
 
         $regId = $this->session->get(self::SESSION_REG_ID);
         $phoneData = $this->session->get(self::SESSION_PHONE_DATA, []);
-        $pageViewEventId = null;
         $customData = null;
-        $userInfo = $this->userInfoService->get($request);
-        $this->logger->info('New page visit. /thanks', $userInfo);
 
-        if ($this->capiService !== null) {
-            // 2. Get data for CAPI events
-            $visitorId = $this->session->get('visitor_id');
-            $phoneForMatching = $phoneData['capi_format'] ?? null;
-            $fbp = $this->session->get('fbp');
-            $fbc = $this->session->get('fbc');
+        $pageViewEventId = $this->analyticsTracker->trackPageView(
+            $request,
+            '/thanks',
+            'pgview-thanks-',
+            null,
+            false,
+            false,
+            'page_view_id_thanks'
+        );
 
-            $capiParams = $this->capiService->processRequest($request);
-            $clientIpAddress = $capiParams['client_ip_address'] ?? null;
-
-            $userDataArray = [
-                'ip' => $clientIpAddress ?? $userInfo['ip'],
-                'agent' => $userInfo['useragent'],
-                'phone' => $phoneForMatching,
-                'external_id' => $visitorId,
-                'fbp' => $fbp,
-                'fbc' => $fbc,
-                'country' => 'lk' // Default to LK
+        // Fire "CompleteRegistration" CAPI Event
+        if (!empty($regId) && !empty($phoneData['capi_format'])) {
+            $this->analyticsTracker->trackCompleteRegistration($request, $phoneData, $regId);
+            $customData = [
+                'currency' => 'USD',
+                'value' => (string) ($phoneData['value'] ?? '0.01')
             ];
-
-            $pageViewEventId = "pgview-thanks-" . uniqid();
-            $this->session->set('page_view_id_thanks', $pageViewEventId);
-
-            // Fire the PageView CAPI event
-            $this->capiService->sendEvent(
-                'PageView',
-                $pageViewEventId,
-                $request->getUri(),
-                $userDataArray
-            );
-            $this->logger->info('New PageView triggered. /thanks', [
-                'page_view_id' => $pageViewEventId
-            ]);
-
-            // Fire "CompleteRegistration" CAPI Event
-            if (!empty($regId) && !empty($phoneForMatching)) {
-
-                $customData = [
-                    'currency' => 'USD',
-                    'value' => $phoneData['value'] ?? '0.01' // FB Capi needs a value
-                ];
-
-                $this->capiService->sendEvent(
-                    'CompleteRegistration',
-                    $regId,
-                    $request->getUri(),
-                    $userDataArray,
-                    $customData
-                );
-                $this->logger->info('CompleteRegistration event triggered.', ['reg_id' => $regId]);
-            }
         }
 
         // 5. Prepare data for the view

@@ -151,4 +151,41 @@ class AnalyticsTrackerServiceTest extends TestCase
         $regId = $this->service->trackCompleteRegistration($request, $phone, 'reg-123');
         $this->assertEquals('reg-123', $regId);
     }
+
+    public function testTrackPageViewSkipOnError(): void
+    {
+        $request = Request::create('http://localhost:8080/');
+        $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'PHPUnit']);
+        $this->sessionServiceMock->method('has')->with(SessionKey::ERROR_MESSAGE)->willReturn(true);
+        $this->sessionServiceMock->method('get')->with(SessionKey::ERROR_MESSAGE)->willReturn('An error occurred');
+
+        $this->capiServiceMock->expects($this->never())->method('sendEvent');
+        $this->loggerMock->expects($this->once())->method('notice');
+
+        $eventId = $this->service->trackPageView($request, '/', 'pgview-', null, false, true);
+        $this->assertNull($eventId);
+    }
+
+    public function testLogVisitWithPhone(): void
+    {
+        $request = Request::create('http://localhost:8080/', 'POST', ['fbp' => 'fbp.1.test', 'fbc' => 'fbc.1.test']);
+        $phone = new PhoneNumber('0771234567', 'tel:94771234567', '94771234567', 'ideamart', 0.018);
+
+        $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'PHPUnit']);
+        $this->sessionServiceMock->method('get')->with(SessionKey::VISITOR_ID)->willReturn('v_test123');
+
+        $this->userLoggerMock->expects($this->once())->method('logVisit')->with(
+            'v_test123',
+            '127.0.0.1',
+            'PHPUnit',
+            '94771234567'
+        );
+
+        $this->sessionServiceMock->expects($this->exactly(2))->method('set')->willReturnCallback(function ($key, $val) {
+            $this->assertContains($key, [SessionKey::FBP, SessionKey::FBC]);
+        });
+
+        $this->service->logVisitWithPhone($request, $phone);
+    }
 }
+
