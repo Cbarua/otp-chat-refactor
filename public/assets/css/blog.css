@@ -1,4 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Noto+Sans+Sinhala:wght@400&display=swap');
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('../fonts/montserrat-regular.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'Noto Sans Sinhala';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fonts/noto-sans-sinhala.woff2') format('woff2'),
+         url('../fonts/noto-sans-sinhala-latin.woff2') format('woff2');
+}
 
 :root {
     --primary-gradient: linear-gradient(#8E54E9, #4776E6);
@@ -25,6 +40,7 @@
 html {
     font-size: 62.5%; /* 1rem = 10px */
     font-family: 'Montserrat', sans-serif;
+    font-size-adjust: from-font;
 }
 
 body {
@@ -75,6 +91,8 @@ body {
 #charging {
     font-size: 8px;
     color: var(--text-gray);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 30px;
 }
 
 .form-title, .alert-success {
@@ -84,6 +102,7 @@ body {
 .form-text {
     font-size: 1.6rem;
     font-family: 'Noto Sans Sinhala', sans-serif;
+    font-size-adjust: from-font;
 }
 
 #smsLink {

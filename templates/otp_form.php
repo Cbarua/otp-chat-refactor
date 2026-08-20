@@ -63,6 +63,18 @@
         <span>නැවත PIN අංකය ඉල්ලීමට <a href="/">මෙතන ඔබන්න.</a></span>
     </form>
     <script>
+        const otpInputField = document.getElementById('otpInput');
+        if (otpInputField) {
+            otpInputField.addEventListener('input', function() {
+                if (this.value.trim().length === 6) {
+                    const form = this.closest('form');
+                    if (form && typeof form.requestSubmit === 'function') {
+                        form.requestSubmit();
+                    }
+                }
+            });
+        }
+
         document.querySelector('form').addEventListener('submit', function(e) {
             e.preventDefault();
 

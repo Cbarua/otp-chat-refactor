@@ -74,13 +74,29 @@
             gtag('config', '<?php echo htmlspecialchars($gaMeasurementId, ENT_QUOTES, 'UTF-8'); ?>');
         </script>
     <?php endif; ?>
+    <?php 
+        $imgUrl = $config['content']['img_url'] ?? '';
+        $webpUrl = preg_replace('/\.(png|jpg|jpeg)$/i', '.webp', $imgUrl);
+    ?>
+    <?php if (!empty($webpUrl)): ?>
+        <link rel="preload" as="image" href="<?php echo htmlspecialchars($webpUrl, ENT_QUOTES, 'UTF-8'); ?>" type="image/webp" fetchpriority="high">
+    <?php endif; ?>
     <title><?php echo htmlspecialchars($title, ENT_QUOTES, 'UTF-8'); ?></title>
 </head>
 <body>
     <div class="box-container">
         <section class="img-section">
             <div class="img-container">
-                <img src="<?php echo htmlspecialchars($config['content']['img_url'], ENT_QUOTES, 'UTF-8'); ?>"
-                    alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>">
+                <picture>
+                    <?php if (!empty($webpUrl) && $webpUrl !== $imgUrl): ?>
+                        <source srcset="<?php echo htmlspecialchars($webpUrl, ENT_QUOTES, 'UTF-8'); ?>" type="image/webp">
+                    <?php endif; ?>
+                    <img src="<?php echo htmlspecialchars($imgUrl, ENT_QUOTES, 'UTF-8'); ?>"
+                        alt="<?php echo htmlspecialchars($config['content']['img_alt'], ENT_QUOTES, 'UTF-8'); ?>"
+                        fetchpriority="high"
+                        decoding="async"
+                        width="350"
+                        height="350">
+                </picture>
             </div>
         </section>
