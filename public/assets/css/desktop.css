@@ -1,0 +1,42 @@
+/* Desktop specific layout and typography rules (loaded via media="(min-width: 800px)") */
+html {
+    font-size: 87.5%; /* 14px */
+}
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.box-container {
+    width: 100%;
+    max-width: 60rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "left right-top" "left right-bottom";
+}
+
+section.img-section {
+    grid-area: left;
+}
+
+.form-section {
+    padding: 1rem;
+    grid-area: right-top;
+    display: grid;
+    place-items: center;
+}
+
+#charging {
+    grid-area: right-bottom;
+}
+
+.box-container img {
+    max-width: 35rem;
+}
+
+.align-self-md-center {
+    align-self: center;
+}

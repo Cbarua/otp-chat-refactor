@@ -1,5 +1,5 @@
 <?php
 // templates/_layout_footer.php
 ?>
-    </div> </body>
+    </main> </body>
 </html>
