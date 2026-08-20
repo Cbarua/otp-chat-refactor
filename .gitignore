@@ -21,7 +21,8 @@ Thumbs.db
 # Ignore all images in public/assets/images by default
 /public/assets/images/*
 # But allow specific images to be committed 
-!public/assets/images/Girl in a salwar.jpeg
+!public/assets/images/Girl in a salwar.webp
+!public/assets/images/A business couple.webp
 
 .phpunit.result.cache
 coverage-report/

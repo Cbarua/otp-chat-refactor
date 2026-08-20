@@ -112,7 +112,7 @@ return [
     ],
 
     'content' => [
-        'img_url' => $_ENV['IMG_URL'] ?? __DIR__ . "/../public/assets/images/Girl in a salwar.jpeg",
+        'img_url' => $_ENV['IMG_URL'] ?? __DIR__ . "/../public/assets/images/Girl in a salwar.webp",
         'img_alt' => $_ENV['IMG_ALT'] ?? 'Girl in a salwar',
         'charge_text' => $_ENV['CHARGE_TEXT'] ?? '',
     ],

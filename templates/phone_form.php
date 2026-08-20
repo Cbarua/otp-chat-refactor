@@ -12,7 +12,7 @@ $phoneJsVer = file_exists($phoneJsPath) ? filemtime($phoneJsPath) : '1.0';
             <span class="form-title"><?php echo htmlspecialchars($_ENV['FORM_TITLE'], ENT_QUOTES, 'UTF-8'); ?></span>
         <?php endif; ?>
 
-        <label for="mobile" class="form-text">ඔබගේ දුරකතන අංකය පහතින් ඇතුළත් කරන්න</label>
+        <label for="mobile" style="text-align: center;" class="form-text">ඔබගේ දුරකතන අංකය පහතින් ඇතුළත් කරන්න</label>
 
         <div id="phoneError" class="alert alert-danger" style="<?php echo isset($errorMessage) ? '' : 'display:none;'; ?>">
             <?php echo isset($errorMessage) ? htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') : ''; ?>
