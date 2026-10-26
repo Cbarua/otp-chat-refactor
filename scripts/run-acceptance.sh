@@ -39,6 +39,13 @@ sleep 1
 # A port that is already served (e.g. by `docker compose up`, the production-like stack) is reused as is.
 port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1; }
 
+# When the compose stack runs, Codeception runs inside it too: the Cests reset logs/userlog.sqlite, and SQLite
+# locks don't cross Docker Desktop's bind mount (a php-fpm child died with SIGBUS when the host wrote it).
+IN_COMPOSE=""
+if docker compose ps --status running -q app 2>/dev/null | grep -q .; then
+  IN_COMPOSE=1
+fi
+
 # 1. Start front-end server
 if port_busy 8080; then
   echo "▶ Front-end server already listening on http://localhost:8080, reusing it"
@@ -62,14 +69,20 @@ fi
 sleep 2
 
 # 3. Start WebDriver
+DRIVER_ARGS="--port=10888"
+if [[ -n "$IN_COMPOSE" ]]; then
+  # The container reaches the driver as host.docker.internal; Docker Desktop proxies it from loopback, so the
+  # LAN stays rejected.
+  DRIVER_ARGS="$DRIVER_ARGS --allowed-ips=127.0.0.1 --allowed-origins=http://host.docker.internal:10888"
+fi
 if [[ "$ios" == "Linux" || "$ios" == "Darwin" ]]; then
   if [[ -x "$EDGE_DRIVER" ]]; then
-    echo "▶ Starting Edge WebDriver: $EDGE_DRIVER --port=10888"
-    $EDGE_DRIVER --port=10888 > /dev/null 2>&1 &
+    echo "▶ Starting Edge WebDriver: $EDGE_DRIVER $DRIVER_ARGS"
+    $EDGE_DRIVER $DRIVER_ARGS > /dev/null 2>&1 &
     DRIVER_PID=$!
   elif [[ -x "$CHROME_DRIVER" ]]; then
-    echo "▶ Starting Chrome WebDriver: $CHROME_DRIVER --port=10888"
-    $CHROME_DRIVER --port=10888 > /dev/null 2>&1 &
+    echo "▶ Starting Chrome WebDriver: $CHROME_DRIVER $DRIVER_ARGS"
+    $CHROME_DRIVER $DRIVER_ARGS > /dev/null 2>&1 &
     DRIVER_PID=$!
   else
     echo "Error: No executable WebDriver binary found in ./webdriver. Expected msedgedriver or chromedriver." >&2
@@ -87,12 +100,18 @@ fi
 sleep 3
 
 # 4. Run Codeception acceptance tests
-echo "▶ Running Codeception acceptance tests..."
+CODECEPT=(vendor/bin/codecept run)
+if [[ -n "$IN_COMPOSE" ]]; then
+  CODECEPT=(docker compose exec -T app vendor/bin/codecept run -o "modules: config: WebDriver: host: host.docker.internal")
+  echo "▶ Running Codeception acceptance tests inside the compose app container..."
+else
+  echo "▶ Running Codeception acceptance tests..."
+fi
 set +e
 if [ $# -eq 0 ]; then
-  vendor/bin/codecept run Acceptance,NoJs
+  "${CODECEPT[@]}" Acceptance,NoJs
 else
-  vendor/bin/codecept run "$@"
+  "${CODECEPT[@]}" "$@"
 fi
 TEST_EXIT=$?
 set -e
