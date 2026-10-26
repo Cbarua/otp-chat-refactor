@@ -782,4 +782,16 @@ class OtpFlowServiceTest extends TestCase
         $this->assertEquals(OtpFlowService::ERROR_GENERIC, $result->message);
         $this->assertEquals('./', $result->redirectUrl);
     }
+
+    public function testRequestOtpNonStringStatusDetailIsTreatedAsGenericFailure(): void
+    {
+        // The old controller ran without strict_types and coerced a non-string statusDetail.
+        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error', 'statusDetail' => 123]);
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_GENERIC], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(OtpFlowService::ERROR_GENERIC, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+    }
 }

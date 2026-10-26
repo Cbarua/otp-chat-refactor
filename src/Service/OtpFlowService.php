@@ -149,7 +149,7 @@ class OtpFlowService
         }
 
         // FAILURE: No URL succeeded.
-        $statusDetail = strtolower($response['statusDetail'] ?? '');
+        $statusDetail = strtolower((string) ($response['statusDetail'] ?? ''));
 
         // Check statusDetail for "already registered"
         if ($statusDetail === ApiStatus::ALREADY_REGISTERED->value) {

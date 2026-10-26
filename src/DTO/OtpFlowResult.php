@@ -21,7 +21,7 @@ class OtpFlowResult implements JsonSerializable
     }
 
     /**
-     * Creates a successful verification result.
+     * Creates a successful flow result.
      */
     public static function success(string $redirectUrl = 'thanks'): self
     {
@@ -35,7 +35,7 @@ class OtpFlowResult implements JsonSerializable
     }
 
     /**
-     * Creates an error verification result.
+     * Creates an error flow result.
      */
     public static function error(
         string $message,
@@ -53,7 +53,7 @@ class OtpFlowResult implements JsonSerializable
     }
 
     /**
-     * Checks whether the verification was successful.
+     * Checks whether the step succeeded.
      */
     public function isSuccess(): bool
     {
