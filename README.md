@@ -202,6 +202,7 @@ otp-chat-refactor/
 - `ThankYouController` - Success page
 
 #### Services
+- `OtpFlowService` - The OTP flow: phone submission (`requestOtp`) and OTP verification (`processVerification`)
 - `OtpApiService` - OTP API integration with failover
 - `RateLimiterService` - SQLite-based rate limiting
 - `CsrfService` - CSRF token management

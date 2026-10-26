@@ -1,8 +1,10 @@
 # Registration & OTP Flow Documentation
 
-**Last Updated:** August 10, 2026
+**Last Updated:** October 26, 2026
 
-This document details the user registration flow within the application, analyzing the interaction between Controllers, Services, Session state, Facebook CAPI events, and External Telco APIs.
+This document details the visitor registration flow within the application, analyzing the interaction between Controllers, Services, Session state, Facebook CAPI events, and External Telco APIs. Domain terms (OTP flow, app, app fallback, token reuse, token renewal, SMS fallback, platform, carrier, visitor) are defined in `GLOSSARY.md`.
+
+Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` for the phone submission and `processVerification()` for the OTP submission. The controllers only validate the CSRF token (and, for `/otp`, the session token), call the service and translate its `OtpFlowResult` into an HTTP response.
 
 ---
 
@@ -15,9 +17,9 @@ This document details the user registration flow within the application, analyzi
 [ FormController::showPhoneForm ] ──► (Renders Phone Form & PageView CAPI)
         │
         ▼ (POST /)
-[ FormController::handlePhoneForm ]
+[ FormController::handlePhoneForm ] ──► CSRF check, then OtpFlowService::requestOtp()
         ├── Rate Limit Check (5/min per IP)
-        ├── CSRF & Phone Normalization
+        ├── Phone Normalization
         ├── Check 60-min Block (otp_max_requests)
         └── Token Reuse (< 5 min old) OR OtpApiService::getOtp()
                 │
@@ -29,15 +31,15 @@ This document details the user registration flow within the application, analyzi
         [ OtpController::showOtpForm ] ──► (Fires PageView & Lead CAPI, Renders OTP or SMS link)
                         │
                         ▼ (POST /otp)
-        [ OtpController::handleOtpForm ]
-                ├── CSRF & Rate Limit Check (5/10min per visitor)
+        [ OtpController::handleOtpForm ] ──► CSRF & token checks, then OtpFlowService::processVerification()
+                ├── Rate Limit Check (5/10min per visitor)
                 ├── Input Format Check (6-digit numeric)
                 └── OtpApiService::verifyOtp()
                         │
                         ├─► Success: Sets reg_id -> Redirects to /thanks
-                        ├─► Expired Token / Not Found (No SMS): Auto-renew via handleExpiredToken()
+                        ├─► Expired Token / Not Found (No SMS): Token renewal via handleExpiredToken()
                         ├─► Invalid OTP (>= 3 attempts) / Not Found (With SMS): Shows SMS fallback link
-                        └─► Provider API Failure: Triggers multi-URL fallback via handleFailedVerification()
+                        └─► Platform API Failure: App fallback via handleFailedVerification()
                                 │
                                 ▼ (GET /thanks)
                 [ ThankYouController::showThankYouPage ] ──► (Fires PageView & CompleteRegistration CAPI -> Clears Session)
@@ -53,7 +55,7 @@ This document details the user registration flow within the application, analyzi
 *   **Method**: `showPhoneForm()`
 *   **Actions**:
     *   **Session Setup**: Generates or retrieves long-lived `visitor_id`.
-    *   **Facebook CAPI**: Calls `trackVisit()`. Fires `PageView` CAPI event with customer match keys (`ip`, `agent`, `external_id`). Skips `PageView` if there is a pending `SESSION_ERROR`.
+    *   **Facebook CAPI**: Calls `AnalyticsTrackerService::trackPageView()`. Fires `PageView` CAPI event with customer match keys (`ip`, `agent`, `external_id`). Skips `PageView` if there is a pending `SESSION_ERROR`.
     *   **View Preparation**: Renders `phone_form.php` template with CSRF token, GA Measurement ID, Pixel configs, and normalized carrier formats.
     *   **Session Cleanup**: Clears flash state (`SESSION_ERROR`, `SESSION_ALREADY_REGISTERED`, `SESSION_INVALID_OTP_COUNT`, `SESSION_SHOW_SMS_LINK`).
 
@@ -61,11 +63,11 @@ This document details the user registration flow within the application, analyzi
 
 ### 2. Phone Submission (`POST /`)
 
-*   **Controller**: `src/Controller/FormController.php`
-*   **Method**: `handlePhoneForm()`
-*   **Request Modes**: Supports both standard HTML form posts and AJAX (`Request::isXmlHttpRequest`).
+*   **Controller**: `src/Controller/FormController.php`, method `handlePhoneForm()`: logs the submission, validates the CSRF token, then calls the service and answers with the result.
+*   **Service**: `src/Service/OtpFlowService.php`, method `requestOtp(Request $request, string $rawPhone): OtpFlowResult`.
+*   **Request Modes**: Supports both standard HTML form posts and AJAX (`Request::isXmlHttpRequest`). The service always writes the flash message for the HTML flow to the session and returns an `OtpFlowResult`; the controller redirects to `$result->redirectUrl` (HTML) or returns `$result->toArray()` as JSON and clears `SESSION_ERROR` / `SESSION_ALREADY_REGISTERED` (AJAX).
 *   **Validation Pipeline**:
-    1.  **CSRF Protection**: Validates token using `CsrfService`. Returns JSON/redirects with `ERROR_CSRF` on failure.
+    1.  **CSRF Protection** (controller): Validates token using `CsrfService`. Returns JSON/redirects with `ERROR_CSRF` on failure without calling the service.
     2.  **IP Rate Limiting**: Checks `phone_submission:{ip}` via `RateLimiterService` (limit: **5 attempts per minute**).
     3.  **Phone Normalization**: Validates and formats number using `Validator::normalizePhone` (identifies carrier and platform, e.g., `mspace`).
     4.  **60-Minute Block Check**: Checks if number is currently blocked (`otp_max_requests:{phone}`). If blocked, returns remaining minutes formatted error.
@@ -107,12 +109,12 @@ This document details the user registration flow within the application, analyzi
 
 ### 4. OTP Verification (`POST /otp`)
 
-*   **Controller**: `src/Controller/OtpController.php`
-*   **Method**: `handleOtpForm()`
+*   **Controller**: `src/Controller/OtpController.php`, method `handleOtpForm()`: CSRF and session token checks, then calls the service and answers with the result (same dual-mode translation as `POST /`).
+*   **Service**: `src/Service/OtpFlowService.php`, method `processVerification(Request $request, string $rawOtp): OtpFlowResult`.
 *   **Request Modes**: Full dual-mode support for HTML form submits and AJAX JSON.
 *   **Validation Pipeline**:
-    1.  **CSRF Protection**: Validates form token via `CsrfService`.
-    2.  **Session Security**: Verifies `SESSION_OTP_TOKEN` exists and is a valid array.
+    1.  **CSRF Protection** (controller): Validates form token via `CsrfService`.
+    2.  **Session Security** (controller): Verifies `SESSION_OTP_TOKEN` exists and is an array or `ArrayAccess` token (the SMS-fallback sentinel `true` is rejected).
     3.  **Rate Limiting**: Checks `otp_verification:{visitorId}` via `RateLimiterService` (limit: **5 attempts per 10 minutes**). If exceeded, triggers `handleFailedVerification`.
     4.  **Format Validation**: Verifies OTP is exactly 6 numeric digits via `Validator::validateOtp`.
 *   **API Verification**: Calls `OtpApiInterface::verifyOtp($token, $rawOtp)`.
@@ -123,16 +125,15 @@ This document details the user registration flow within the application, analyzi
         *   Clears `SESSION_INVALID_OTP_COUNT` and `SESSION_SHOW_SMS_LINK`.
         *   Redirects to `/thanks` or returns `{"status": "success", "redirect": "thanks"}`.
     *   **Expired Token (`OTP_STATUS_EXPIRED`)**:
-        *   Invokes `handleExpiredToken()` to auto-renew OTP across endpoints (without excluding current URL).
+        *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again (apps that already failed are not excluded).
         *   Sets `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and updates `SESSION_OTP_TOKEN`.
     *   **Invalid OTP (`OTP_INVALID`)**:
-        *   Increments `SESSION_INVALID_OTP_COUNT`.
-        *   If count >= 3 AND SMS config is present, sets `SESSION_SHOW_SMS_LINK = true` to reveal SMS link.
-        *   Otherwise, sets `ERROR_OTP_INVALID`.
+        *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` to reveal the SMS link, otherwise sets `ERROR_OTP_INVALID`.
+        *   Without SMS config: sets `ERROR_OTP_INVALID` (no counter).
     *   **OTP Not Found (`OTP_NOT_FOUND`)**:
         *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and returns SMS fallback link.
-        *   If SMS config absent: Invokes `handleExpiredToken()` to auto-renew token via alternative provider URLs.
-    *   **API Provider Error**: Invokes `handleFailedVerification()` to attempt multi-URL fallback ($allFailedUrls).
+        *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
+    *   **Platform API Error**: Invokes `handleFailedVerification()` for an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
 
 ---
 
@@ -162,17 +163,23 @@ This document details the user registration flow within the application, analyzi
 | `POST /otp` | CSRF Error | Redirect `/otp` + Session Error | `{"status": "error", "message": "Security check failed...", "redirect": "otp"}` |
 | `POST /otp` | Invalid OTP (< 3 tries) | Redirect `/otp` + Session Error | `{"status": "error", "message": "Invalid OTP...", "showSmsLink": false}` |
 | `POST /otp` | 3 Tries / SMS Fallback | Redirect `/otp` + SMS Mode | `{"status": "error", "message": "...", "showSmsLink": true}` |
-| `POST /otp` | Token Auto-Renewed | Redirect `/otp` + Session Error | `{"status": "error", "message": "Your OTP expired..."}` |
+| `POST /otp` | Token Renewed | Redirect `/otp` + Session Error | `{"status": "error", "message": "Your OTP expired..."}` |
 | `POST /otp` | Verification Success | Redirect `/thanks` | `{"status": "success", "redirect": "thanks"}` |
 
 ---
 
 ## Service Layer & State Architecture
 
+### 0. `App\Service\OtpFlowService`
+The OTP flow module. Two public methods, one per step, both returning `App\DTO\OtpFlowResult` (`status`, `message`, `redirectUrl`, `showSmsLink`, `ajaxRedirect`; `toArray()` is the AJAX body):
+*   `requestOtp($request, $rawPhone)`: rate limit, phone normalization, 60-minute block, token reuse, `OtpApiService::getOtp()` with app fallback, already-registered / SMS fallback / error outcomes.
+*   `processVerification($request, $rawOtp)`: rate limit, format check, `OtpApiService::verifyOtp()`, token renewal and app fallback, SMS fallback after repeated failures.
+Both write the session state for the next step and the HTML flash message; they never read cookies or produce HTTP responses.
+
 ### 1. `App\Service\OtpApiService`
-Gateway interface (`OtpApiInterface`) for interacting with external telco endpoints:
-*   `getOtp($platform, $subscriberId, $metaData, $failedUrls)`: Manages API endpoint rotation and returns an opaque verification token.
-*   `verifyOtp($verificationToken, $otp)`: Uses token metadata (`usedApiUrl`, `referenceNo`) to target the exact endpoint for verification.
+Interface (`OtpApiInterface`) to the platforms' apps:
+*   `getOtp($platform, $subscriberId, $metaData, $failedUrls)`: Walks the platform's apps in order (app fallback), skipping `$failedUrls`, and returns an opaque OTP token.
+*   `verifyOtp($verificationToken, $otp)`: Uses token metadata (`usedApiUrl`, `referenceNo`) to target the app that issued the OTP.
 
 ### 2. `App\Service\RateLimiterService`
 Manages application-level rate limits:
