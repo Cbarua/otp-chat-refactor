@@ -152,6 +152,17 @@ class AnalyticsTrackerServiceTest extends TestCase
         $this->assertEquals('reg-123', $regId);
     }
 
+    public function testTrackPageViewSkipsHeadRequests(): void
+    {
+        $request = Request::create('http://localhost:8080/', 'HEAD');
+
+        $this->loggerMock->expects($this->never())->method('info');
+        $this->userLoggerMock->expects($this->never())->method('logVisit');
+        $this->capiServiceMock->expects($this->never())->method('sendEvent');
+
+        $this->assertNull($this->service->trackPageView($request, '/', 'pgview-', null, true));
+    }
+
     public function testTrackPageViewSkipOnError(): void
     {
         $request = Request::create('http://localhost:8080/');

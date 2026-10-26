@@ -42,6 +42,7 @@ class AnalyticsTrackerService
 
     /**
      * Tracks a PageView event, logging the visit and dispatching CAPI if configured.
+     * HEAD requests come from uptime monitors, not visitors, so they are not tracked.
      *
      * @param Request $request
      * @param string $pageRoute e.g. '/' or '/otp' or '/thanks'
@@ -61,6 +62,10 @@ class AnalyticsTrackerService
         bool $skipOnError = false,
         string|SessionKey|null $sessionKey = null
     ): ?string {
+        if ($request->isMethod('HEAD')) {
+            return null;
+        }
+
         $userInfo = $this->getUserInfo($request);
         $this->logger->info("New page visit. {$pageRoute}", $userInfo);
 
