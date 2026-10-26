@@ -1,0 +1,19 @@
+# Local stand-in for the AWS OTP server (Amazon Linux 2023, httpd, PHP 8.4 php-fpm), see docker/Dockerfile.
+# Run from the repo root: `docker compose up -d --build`. The app answers on localhost:8080 and the mock OTP
+# provider on localhost:8081, the same ports the Codeception suites and `php -S` use, so `composer test:ac`
+# and `vendor/bin/codecept run NoJs` need no changes. The repo is mounted at its host path because the
+# acceptance tests send that path in the TEST_LOG_DIR cookie. The mock's testapi gateway reaches the
+# telco-api container through the host (it publishes 127.0.0.1:80).
+services:
+  app:
+    build: docker
+    environment:
+      APP_ROOT: ${PWD}
+    working_dir: ${PWD}
+    volumes:
+      - .:${PWD}
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    extra_hosts:
+      - "telco.api:host-gateway"

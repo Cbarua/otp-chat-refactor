@@ -36,17 +36,28 @@ pkill -f "php -S localhost:8080" 2>/dev/null || true
 pkill -f "php -S localhost:8081" 2>/dev/null || true
 sleep 1
 
+# A port that is already served (e.g. by `docker compose up`, the production-like stack) is reused as is.
+port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1; }
+
 # 1. Start front-end server
-echo "▶ Starting front-end server (http://localhost:8080)..."
-php -S localhost:8080 -t public > /dev/null 2>&1 &
-FRONT_PID=$!
-echo "   → PID $FRONT_PID"
+if port_busy 8080; then
+  echo "▶ Front-end server already listening on http://localhost:8080, reusing it"
+else
+  echo "▶ Starting front-end server (http://localhost:8080)..."
+  php -S localhost:8080 -t public > /dev/null 2>&1 &
+  FRONT_PID=$!
+  echo "   → PID $FRONT_PID"
+fi
 
 # 2. Start backend server
-echo "▶ Starting backend mock API server (http://localhost:8081)..."
-php -S localhost:8081 ./public/backend-test-api/index.php > /dev/null 2>&1 &
-BACKEND_PID=$!
-echo "   → PID $BACKEND_PID"
+if port_busy 8081; then
+  echo "▶ Mock API server already listening on http://localhost:8081, reusing it"
+else
+  echo "▶ Starting backend mock API server (http://localhost:8081)..."
+  php -S localhost:8081 ./public/backend-test-api/index.php > /dev/null 2>&1 &
+  BACKEND_PID=$!
+  echo "   → PID $BACKEND_PID"
+fi
 
 sleep 2
 

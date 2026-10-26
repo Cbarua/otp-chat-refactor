@@ -16,11 +16,13 @@ composer test:ac                                     # full acceptance run (Acce
 composer test:ac -- NoJs                             # args are passed to `codecept run`
 composer dev:frontend                                # app on localhost:8080
 composer dev:mockapi                                 # mock OTP provider on localhost:8081
+docker compose up -d --build                         # app + mock on the OTP server's stack (Amazon Linux 2023, httpd, PHP 8.4 php-fpm), same ports; run from the repo root
+docker compose exec app php vendor/bin/phpunit       # unit tests on the server's PHP
 ```
 
-`test:ac` runs `scripts/run-acceptance.php`, which hands over to `run-acceptance.sh` (macOS/Linux) or `run-acceptance.bat` (Windows, expects `C:\webdriver\msedgedriver.exe`); the shell script starts both PHP servers plus a WebDriver on port 10888 from `./webdriver/msedgedriver` or `./webdriver/chromedriver` (gitignored, download it yourself), then cleans up. CI runs only `vendor/bin/phpunit` on PHP 8.4.
+`test:ac` runs `scripts/run-acceptance.php`, which hands over to `run-acceptance.sh` (macOS/Linux) or `run-acceptance.bat` (Windows, expects `C:\webdriver\msedgedriver.exe`); the shell script starts both PHP servers plus a WebDriver on port 10888 from `./webdriver/msedgedriver` or `./webdriver/chromedriver` (gitignored, download it yourself), then cleans up. When ports 8080/8081 are already served (the compose stack), the script reuses them instead of starting `php -S`, so prefer `docker compose up -d --build` first: it runs the app and the mock on the server's PHP, not the host's. CI runs only `vendor/bin/phpunit` on PHP 8.4.
 
-**Deploys:** `.github/workflows/cd.yml` runs on every push to `main` **and `test`**. It SSHes to EC2 and does `git reset --hard` + `composer install --no-dev` on every app instance under `/var/www/html/*/*`, so pushing to `test` ships to production hosts.
+**Deploys:** `.github/workflows/cd.yml` runs on every push to `main` **and `test`**. It SSHes to EC2 and does `git reset --hard` + `composer install --no-dev` on every app instance under `/var/www/html/*/*`, so pushing to `test` ships to production hosts. Those hosts are Amazon Linux 2023 with httpd 2.4 and PHP 8.4 under php-fpm (`display_errors` off); each instance has a vhost whose DocumentRoot is its `public/` with `AllowOverride All`, which is what `docker/Dockerfile` mirrors.
 
 ## Architecture
 
@@ -41,7 +43,7 @@ Request path: `public/index.php` (front controller, security headers, global 500
 
 ## Test hooks
 
-`config/app.php` reads cookies, which is how acceptance tests reach the mock provider. `APP_ENV=testing` loads `.env.test` instead of `.env`; after that, `TEST_IDEAMART_URLS` overrides the URL list, and `TEST_LOG_DIR` + `TEST_CLASS_NAME` redirect the logs. `DISABLE_SMS_FALLBACK=true` clears the SMS config in every environment (it is the one cookie `config/app.php` reads without the `APP_ENV=testing` guard). The mock API (`public/backend-test-api/`) chooses its behaviour from the gateway path segment (`/fail1/getOtp.php`, `/success/...`); see `MockApiController.php`.
+`config/app.php` reads cookies, which is how acceptance tests reach the mock provider. `APP_ENV=testing` loads `.env.test` instead of `.env`; after that, `TEST_IDEAMART_URLS` overrides the URL list, and `TEST_LOG_DIR` + `TEST_CLASS_NAME` redirect the logs. `DISABLE_SMS_FALLBACK=true` clears the SMS config in every environment (it is the one cookie `config/app.php` reads without the `APP_ENV=testing` guard). The mock API (`public/backend-test-api/`) chooses its behaviour from the gateway path segment (`/fail1/getOtp.php`, `/success/...`); see `MockApiController.php`. A `testapi` gateway proxies to `http://telco.api` (the telco-sample-api mock, a separate project), so the four tests that use it need that server answering on port 80 of the host; the compose stack reaches it through the host gateway.
 
 Unit tests sit flat in `tests/` and use PHPUnit `createMock` (Mockery is also available). `SessionService` is usually mocked over an in-memory `$sessionData` array.
 
