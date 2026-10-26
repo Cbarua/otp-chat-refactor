@@ -191,7 +191,8 @@ final class PhoneFormAjaxCest
         $this->logTestStart($I, 'Test AJAX submission when maximum OTP requests reached without SMS fallback');
         
         // Disable SMS fallback for this test via cookie
-        $I->setCookie('test_disable_sms', '1');
+        $I->setCookie('DISABLE_SMS_FALLBACK', 'true');
+        $_COOKIE['DISABLE_SMS_FALLBACK'] = 'true';
         $I->amOnPage('/');
 
         // 0781234560 maps to E1853 'Maximum number of OTP requests reached'
@@ -217,6 +218,10 @@ final class PhoneFormAjaxCest
         $I->see('Maximum number of OTP requests reached', '#phoneError');
         $I->see('60 minutes', '#phoneError');
         $I->dontSeeElement('#alreadyRegistered', ['style' => 'display: block;']);
+
+        // Reset cookie for subsequent tests
+        $I->resetCookie('DISABLE_SMS_FALLBACK');
+        unset($_COOKIE['DISABLE_SMS_FALLBACK']);
     }
 
     public function testPhoneFormAjaxAppNotAllowedError(AcceptanceTester $I): void

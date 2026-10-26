@@ -130,13 +130,13 @@ class OtpFlowService
         $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
 
         // 5. Handle the final API response
-        return $this->handleOtpApiResponse($request, $rawPhone, $response, $phoneData);
+        return $this->handleOtpApiResponse($rawPhone, $response, $phoneData);
     }
 
     /**
      * Handles the final API response after attempting to get an OTP.
      */
-    private function handleOtpApiResponse(Request $request, string $rawPhone, array $response, PhoneNumber|array $phoneData): OtpFlowResult
+    private function handleOtpApiResponse(string $rawPhone, array $response, PhoneNumber|array $phoneData): OtpFlowResult
     {
         // Success condition is based on the 'status' key from our service
         if (($response['status'] ?? null) === 'success') {
@@ -179,9 +179,8 @@ class OtpFlowService
 
         // Check statusDetail for "temporary system error"
         if (str_contains($statusDetail, ApiStatus::TEMPORARY_FAILURE->value)) {
-            $smsConfig = $this->getSmsConfig($request);
-            $smsNumber = $smsConfig['number'] ?? null;
-            $smsKeyword = $smsConfig['keyword'] ?? null;
+            $smsNumber = $this->config['sms']['number'] ?? null;
+            $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
             if (!($smsNumber && $smsKeyword)) {
                 $this->logger->error('Temporary system error encountered', [
@@ -206,9 +205,8 @@ class OtpFlowService
         if (str_contains($statusDetail, ApiStatus::MAX_REQUESTS_REACHED->value)) {
             $this->rateLimiter->block('otp_max_requests:' . $phoneData['capi_format'], 3600);
 
-            $smsConfig = $this->getSmsConfig($request);
-            $smsNumber = $smsConfig['number'] ?? null;
-            $smsKeyword = $smsConfig['keyword'] ?? null;
+            $smsNumber = $this->config['sms']['number'] ?? null;
+            $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
             if ($smsNumber && $smsKeyword) {
                 $this->session->set(SessionKey::LEAD_ID, $this->generateRandomId('lead-'));
@@ -238,17 +236,6 @@ class OtpFlowService
             ...$response
         ]);
         return OtpFlowResult::error(self::ERROR_GENERIC, './');
-    }
-
-    /**
-     * Retrieves SMS configuration, respecting test override cookies if present.
-     */
-    private function getSmsConfig(Request $request): ?array
-    {
-        if ($request->cookies->has('test_disable_sms')) {
-            return null;
-        }
-        return $this->config['sms'] ?? null;
     }
 
     /**
