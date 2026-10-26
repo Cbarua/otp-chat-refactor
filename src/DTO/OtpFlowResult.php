@@ -1,5 +1,5 @@
 <?php
-// src/DTO/OtpVerificationResult.php
+// src/DTO/OtpFlowResult.php
 declare(strict_types=1);
 
 namespace App\DTO;
@@ -7,9 +7,9 @@ namespace App\DTO;
 use JsonSerializable;
 
 /**
- * Immutable DTO representing the outcome of an OTP verification attempt.
+ * Immutable DTO representing the outcome of one OTP flow step (request or verification).
  */
-class OtpVerificationResult implements JsonSerializable
+class OtpFlowResult implements JsonSerializable
 {
     public function __construct(
         public readonly string $status,
