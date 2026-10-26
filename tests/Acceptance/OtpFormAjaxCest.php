@@ -107,6 +107,7 @@ final class OtpFormAjaxCest
         $I->click('Register');
         $I->wait(3);
         $I->seeInCurrentUrl('/otp');
+        // From here on, filling in 6 digits is enough: otp-form.js submits the form itself, so the tests don't click Verify.
     }
 
     public function testDirectAccessToOtpWithoutTokenRedirectsToHome(AcceptanceTester $I): void
@@ -137,7 +138,6 @@ final class OtpFormAjaxCest
 
         // Submit invalid OTP to trigger error display
         $I->fillField('otp', '123456');
-        $I->click('Verify');
         $I->wait(2);
 
         $I->see('Invalid OTP. Please enter the correct OTP.', '#otpError');
@@ -158,7 +158,6 @@ final class OtpFormAjaxCest
 
         $I->executeJS("document.querySelector('input[name=\"csrf_token\"]').value = 'invalid_token_123';");
         $I->fillField('otp', '999999');
-        $I->click('Verify');
 
         $I->wait(1);
 
@@ -182,19 +181,16 @@ final class OtpFormAjaxCest
 
         // Attempt 1
         $I->fillField('otp', '123456');
-        $I->click('Verify');
         $I->wait(2);
         $I->see('Invalid OTP. Please enter the correct OTP.', '#otpError');
 
         // Attempt 2
         $I->fillField('otp', '123456');
-        $I->click('Verify');
         $I->wait(2);
         $I->see('Invalid OTP. Please enter the correct OTP.', '#otpError');
 
         // Attempt 3 -> Triggers SMS fallback
         $I->fillField('otp', '123456');
-        $I->click('Verify');
         $I->wait(3);
 
         // Should reload and render SMS Fallback link
@@ -213,7 +209,6 @@ final class OtpFormAjaxCest
         $this->navigateToOtpForm($I);
 
         $I->fillField('otp', '444444');
-        $I->click('Verify');
         $I->wait(3);
 
         $I->seeElement('#smsLink');
@@ -230,7 +225,6 @@ final class OtpFormAjaxCest
         $this->navigateToOtpForm($I);
 
         $I->fillField('otp', '444444');
-        $I->click('Verify');
         $I->wait(3);
 
         // Should see expired OTP renewal error message instead of SMS fallback link
@@ -248,7 +242,6 @@ final class OtpFormAjaxCest
         $this->navigateToOtpForm($I);
 
         $I->fillField('otp', '111111');
-        $I->click('Verify');
         $I->wait(3);
 
         $I->see('Your OTP expired. A new OTP has been sent to your phone.', '#otpError');
@@ -267,7 +260,6 @@ final class OtpFormAjaxCest
         $this->navigateToOtpForm($I);
 
         $I->fillField('otp', '999999');
-        $I->click('Verify');
         $I->wait(3);
 
         $I->seeInCurrentUrl('/thanks');
@@ -285,11 +277,9 @@ final class OtpFormAjaxCest
         $_COOKIE['TEST_IDEAMART_URLS'] = $customUrls;
 
         $I->fillField('otp', '111111');
-        $I->click('Verify');
-        $I->wait(2);
 
-        // Shows error on /otp page first
-        $I->see('An error occurred. Please try again later.', '#otpError');
+        // Shows error on /otp page first; the JS redirects 2 s after the response, so don't sleep before looking
+        $I->waitForText('An error occurred. Please try again later.', 10, '#otpError');
 
         // Wait for 2s JS timeout to redirect to / homepage and complete page load
         $I->wait(6);

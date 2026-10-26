@@ -10,6 +10,7 @@ use Tests\Support\TestLogHelper;
 final class AnalyticsCest
 {
     private const MAGIC_PHONE = '0760123456';
+    // 6 digits: otp-form.js submits the form itself, so the tests don't click Verify
     private const MAGIC_OTP = '999999';
 
     private static bool $logsCleared = false;
@@ -103,6 +104,19 @@ final class AnalyticsCest
         $I->wantTo($description);
     }
 
+    /**
+     * The forms send their GA events from their scripts through trackGa(), not from the markup,
+     * so check that the page loads the script and return its code.
+     */
+    private function grabFormScript(AcceptanceTester $I, string $file): string
+    {
+        $I->seeInSource("assets/js/$file");
+        $js = file_get_contents(__DIR__ . "/../../public/assets/js/$file");
+        $I->assertStringContainsString("window.gtag('event', eventName, params)", $js);
+
+        return $js;
+    }
+
     // --- Facebook Pixel Firing Tests ---
     public function testPixelsOnPhoneForm(AcceptanceTester $I): void
     {
@@ -166,7 +180,6 @@ final class AnalyticsCest
         $I->wait(3);
         $I->seeInCurrentUrl('/otp');
         $I->fillField('otp', self::MAGIC_OTP);
-        $I->click('Verify');
 
         $I->wait(3);
         $I->seeInCurrentUrl('/thanks');
@@ -203,13 +216,15 @@ final class AnalyticsCest
         } else {
             $I->seeInSource("gtag('config', '$gaMeasurementId');");
 
+            $js = $this->grabFormScript($I, 'phone-form.js');
+
             // Test begin_registration event code presence
-            $I->seeInSource("gtag('event', 'begin_registration'");
-            $I->seeInSource("'event_label': 'phone_submitted_ajax'");
+            $I->assertStringContainsString("trackGa('begin_registration'", $js);
+            $I->assertStringContainsString("event_label: 'phone_submitted_ajax'", $js);
 
             // Test form_error event code presence
-            $I->seeInSource("gtag('event', 'form_error'");
-            $I->seeInSource("'event_label': 'client_side_phone_error'");
+            $I->assertStringContainsString("trackGa('form_error'", $js);
+            $I->assertStringContainsString("event_label: 'client_side_phone_error'", $js);
         }
     }
 
@@ -232,8 +247,9 @@ final class AnalyticsCest
             $I->seeInSource("gtag('config', '$gaMeasurementId');");
 
             // Test submit_otp event on form submission
-            $I->seeInSource("onsubmit=\"gtag('event', 'submit_otp'");
-            $I->seeInSource("'event_label': 'otp_submitted'");
+            $js = $this->grabFormScript($I, 'otp-form.js');
+            $I->assertStringContainsString("trackGa('submit_otp'", $js);
+            $I->assertStringContainsString("event_label: 'otp_submitted'", $js);
         }
     }
 
@@ -251,16 +267,16 @@ final class AnalyticsCest
         // Submit invalid OTP 3 times to show SMS link
         for ($i = 1; $i <= 3; $i++) {
             $I->fillField('otp', '11112' . $i);
-            $I->click('Verify');
             $I->wait(3);
         }
 
         $I->seeElement('#smsLink');
 
-        // Verify GA event tracking code is present in the onclick attribute
-        $I->seeInSource("gtag('event', 'sms_link_click'");
-        $I->seeInSource("'event_category': 'engagement'");
-        $I->seeInSource("'event_label': 'sms_fallback_link'");
+        // Verify GA event tracking code is present in the click handler otp-form.js puts on the link
+        $js = $this->grabFormScript($I, 'otp-form.js');
+        $I->assertStringContainsString("trackGa('sms_link_click'", $js);
+        $I->assertStringContainsString("event_category: 'engagement'", $js);
+        $I->assertStringContainsString("event_label: 'sms_fallback_link'", $js);
     }
 
     public function testGoogleAnalyticsOnThanksPage(AcceptanceTester $I): void
@@ -274,7 +290,6 @@ final class AnalyticsCest
         $I->wait(3);
         $I->seeInCurrentUrl('/otp');
         $I->fillField('otp', self::MAGIC_OTP);
-        $I->click('Verify');
 
         $I->wait(3);
         $I->seeInCurrentUrl('/thanks');
