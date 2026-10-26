@@ -20,10 +20,7 @@ class FormController extends BaseController
     public const SESSION_PAGE_VIEW_ID = SessionKey::PAGE_VIEW_ID->value;
     public const SESSION_VISITOR_ID = SessionKey::VISITOR_ID->value;
     public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
-    public const SESSION_FBP = SessionKey::FBP->value;
     public const SESSION_FBC = SessionKey::FBC->value;
-    public const SESSION_LEAD_ID = SessionKey::LEAD_ID->value;
-    public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
     public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
     public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
 

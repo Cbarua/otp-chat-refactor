@@ -182,7 +182,7 @@ class AnalyticsTrackerServiceTest extends TestCase
         );
 
         $this->sessionServiceMock->expects($this->exactly(2))->method('set')->willReturnCallback(function ($key, $val) {
-            $this->assertContains($key, [SessionKey::FBP, SessionKey::FBC]);
+            $this->assertSame(['fbp' => 'fbp.1.test', 'fbc' => 'fbc.1.test'][$key->value], $val);
         });
 
         $this->service->logVisitWithPhone($request, $phone);

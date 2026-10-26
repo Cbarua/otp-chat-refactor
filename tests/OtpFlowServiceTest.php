@@ -2,9 +2,24 @@
 // tests/OtpFlowServiceTest.php
 declare(strict_types=1);
 
+namespace App\Service;
+
+// Shadows the global random_bytes() inside App\Service so OtpFlowService::generateRandomId()'s
+// uniqid() fallback can be exercised. Delegates to the real function unless the global flag is set.
+if (!function_exists('App\Service\random_bytes')) {
+    function random_bytes(int $length): string
+    {
+        if (!empty($GLOBALS['mock_random_bytes_fail_service'])) {
+            throw new \Exception('Random bytes failed');
+        }
+        return \random_bytes($length);
+    }
+}
+
 namespace App\Tests\Service;
 
 use App\DTO\OtpVerificationToken;
+use App\DTO\PhoneNumber;
 use App\Enum\ApiStatus;
 use App\Enum\SessionKey;
 use App\Service\AnalyticsTrackerService;
@@ -12,7 +27,9 @@ use App\Service\OtpApiInterface;
 use App\Service\OtpFlowService;
 use App\Service\RateLimiterService;
 use App\Service\SessionService;
+use App\Utils\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -21,68 +38,499 @@ use Symfony\Component\HttpFoundation\Request;
 #[CoversClass(OtpFlowService::class)]
 class OtpFlowServiceTest extends TestCase
 {
-    private OtpFlowService $service;
-    private array $config;
-    private MockObject|OtpApiInterface $otpServiceMock;
-    private MockObject|AnalyticsTrackerService $analyticsTrackerMock;
-    private MockObject|LoggerInterface $loggerMock;
-    private MockObject|SessionService $sessionServiceMock;
-    private MockObject|RateLimiterService $rateLimiterMock;
-    private array $sessionData;
-
     private const PRIMARY_API_URL = 'https://mock.api/primary.php';
     private const FALLBACK_API_URL = 'https://mock.api/fallback.php';
 
+    // config/carriers.php: prefix 77 -> ideamart (71 -> mspace)
+    private const RAW_PHONE = '0771234567';
+    private const CAPI_PHONE = '94771234567';
+    private const TELCO_PHONE = 'tel:94771234567';
+    private const SMS_CONFIG = ['sms' => ['number' => '1234', 'keyword' => 'REG']];
+    // Session phone_data left behind by an earlier request for RAW_PHONE.
+    private const SAME_PHONE = [
+        'capi_format' => self::CAPI_PHONE,
+        'telco_format' => self::TELCO_PHONE,
+        'platform' => 'ideamart',
+    ];
+
+    private OtpFlowService $service;
+    private array $config;
+    private array $carrierConfig;
+    private MockObject|OtpApiInterface $otpServiceMock;
+    private MockObject|AnalyticsTrackerService $analyticsTrackerMock;
+    private MockObject|LoggerInterface $loggerMock;
+    private SessionService $sessionService;
+    private MockObject|RateLimiterService $rateLimiterMock;
+
     protected function setUp(): void
     {
-        $this->sessionData = [];
+        $_SESSION = [];
         $this->config = [
             'sms' => ['number' => '77000', 'keyword' => 'chat'],
             'api' => ['ideamart' => [self::PRIMARY_API_URL, self::FALLBACK_API_URL]]
         ];
+        $this->carrierConfig = require __DIR__ . '/../config/carriers.php';
 
         $this->otpServiceMock = $this->createMock(OtpApiInterface::class);
         $this->analyticsTrackerMock = $this->createMock(AnalyticsTrackerService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
-        $this->sessionServiceMock = $this->createMock(SessionService::class);
+        $this->sessionService = new SessionService();
         $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
 
-        $this->analyticsTrackerMock->method('getUserInfo')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
-
-        $this->sessionServiceMock->method('get')->willReturnCallback(function (SessionKey|string $key, $default = null) {
-            $k = $key instanceof SessionKey ? $key->value : $key;
-            return $this->sessionData[$k] ?? $default;
-        });
-        $this->sessionServiceMock->method('set')->willReturnCallback(function (SessionKey|string $key, $value): void {
-            $k = $key instanceof SessionKey ? $key->value : $key;
-            $this->sessionData[$k] = $value;
-        });
-        $this->sessionServiceMock->method('has')->willReturnCallback(function (SessionKey|string $key): bool {
-            $k = $key instanceof SessionKey ? $key->value : $key;
-            return isset($this->sessionData[$k]);
-        });
-        $this->sessionServiceMock->method('unset')->willReturnCallback(function (SessionKey|string $key): void {
-            $k = $key instanceof SessionKey ? $key->value : $key;
-            unset($this->sessionData[$k]);
-        });
-
+        $this->analyticsTrackerMock->method('getUserInfo')
+            ->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->service = new OtpFlowService(
-            $this->config,
-            require __DIR__ . '/../config/carriers.php',
+        $this->service = $this->makeService($this->config);
+    }
+
+    protected function tearDown(): void
+    {
+        $_SESSION = [];
+        unset($GLOBALS['mock_random_bytes_fail_service']);
+    }
+
+    /**
+     * Builds an OtpFlowService over the shared mocks with the given app config (with or without 'sms').
+     */
+    private function makeService(array $config): OtpFlowService
+    {
+        return new OtpFlowService(
+            $config,
+            $this->carrierConfig,
             $this->otpServiceMock,
             $this->analyticsTrackerMock,
             $this->loggerMock,
-            $this->sessionServiceMock,
+            $this->sessionService,
             $this->rateLimiterMock
         );
     }
 
+    /**
+     * The form POST FormController hands to requestOtp() alongside the raw phone.
+     */
+    private function phoneRequest(string $phone = self::RAW_PHONE): Request
+    {
+        return new Request([], ['mobile' => $phone]);
+    }
+
+    /**
+     * Session state every SMS-fallback branch of requestOtp leaves behind.
+     */
+    private function assertSmsFallbackSessionState(): void
+    {
+        $this->assertStringStartsWith('lead-', $_SESSION[SessionKey::LEAD_ID->value]);
+        $this->assertInstanceOf(PhoneNumber::class, $_SESSION[SessionKey::PHONE_DATA->value]);
+        $this->assertTrue($_SESSION[SessionKey::SHOW_SMS_LINK->value]);
+        $this->assertTrue($_SESSION[SessionKey::OTP_TOKEN->value]);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $_SESSION);
+    }
+
+    // --- requestOtp ---
+
+    public function testRequestOtpRateLimitExceeded(): void
+    {
+        $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
+        $this->rateLimiterMock->method('check')->with('phone_submission:127.0.0.1', 5, 60)->willReturn(false);
+        $this->rateLimiterMock->expects($this->never())->method('increment');
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+        $this->analyticsTrackerMock->expects($this->never())->method('logVisitWithPhone');
+        $this->loggerMock->expects($this->once())
+            ->method('warning')
+            ->with('Rate limit exceeded for phone submission.', ['rate_limit_key' => 'phone_submission:127.0.0.1']);
+
+        $result = $this->makeService($this->config)->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertFalse($result->isSuccess());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_RATE_LIMIT], $result->toArray());
+        $this->assertSame(OtpFlowService::ERROR_RATE_LIMIT, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+    }
+
+    public static function invalidPhoneProvider(): array
+    {
+        return [
+            'malformed number' => ['12345'],
+            'unsupported carrier' => ['0731234567'],
+        ];
+    }
+
+    #[DataProvider('invalidPhoneProvider')]
+    public function testRequestOtpInvalidPhone(string $raw): void
+    {
+        $this->rateLimiterMock->expects($this->once())->method('increment')->with('phone_submission:127.0.0.1');
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+        $this->analyticsTrackerMock->expects($this->never())->method('logVisitWithPhone');
+
+        // Validator logs its own warning first (requestOtp hands it the logger); its wording belongs to ValidatorTest.
+        $seen = false;
+        $seenValidator = false;
+        $this->loggerMock->expects($this->atLeastOnce())
+            ->method('warning')
+            ->willReturnCallback(function (string $message, array $context) use ($raw, &$seen, &$seenValidator): void {
+                if (str_starts_with($message, 'Validation failed')) {
+                    $seenValidator = true;
+                }
+                if ($message === 'Invalid phone number submitted') {
+                    $seen = true;
+                    $this->assertSame(['raw_phone' => $raw], $context);
+                }
+            });
+
+        $result = $this->service->requestOtp($this->phoneRequest($raw), $raw);
+
+        $this->assertTrue($seenValidator, 'Expected the Validator warning to be forwarded to the logger.');
+        $this->assertTrue($seen, 'Expected the "Invalid phone number submitted" warning.');
+        $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_INVALID_PHONE], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(OtpFlowService::ERROR_INVALID_PHONE, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+    }
+
+    public function testRequestOtpBlockedNumberReturnsMaxRequestsError(): void
+    {
+        $this->rateLimiterMock->method('getRemainingSeconds')
+            ->with('otp_max_requests:' . self::CAPI_PHONE)
+            ->willReturn(150);
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+        $this->analyticsTrackerMock->expects($this->never())->method('logVisitWithPhone');
+        $this->loggerMock->expects($this->once())
+            ->method('warning')
+            ->with('Phone number blocked due to max OTP requests limit', [
+                'phone' => self::CAPI_PHONE,
+                'remaining_seconds' => 150,
+                'remaining_minutes' => 3,
+            ]);
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $expected = 'Maximum number of OTP requests reached for 0771234567. Please try again in 3 minutes';
+        $this->assertSame(['status' => 'error', 'message' => $expected], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame($expected, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+    }
+
+    public function testRequestOtpReusesRecentTokenForSameNumber(): void
+    {
+        $createdAt = time() - 100;
+        $_SESSION[SessionKey::PHONE_DATA->value] = self::SAME_PHONE;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref-123', 'createdAt' => $createdAt];
+        $request = $this->phoneRequest();
+
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+        $this->analyticsTrackerMock->expects($this->once())
+            ->method('logVisitWithPhone')
+            ->with($request, $this->callback(fn (PhoneNumber $p) => $p['capi_format'] === self::CAPI_PHONE));
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Reusing existing valid OTP token', $this->callback(
+                fn (array $c) => $c['phone'] === self::CAPI_PHONE
+                    && $c['created_at'] === date('Y-m-d H:i:s', $createdAt)
+                    && $c['age'] >= 100
+            ));
+
+        $result = $this->service->requestOtp($request, self::RAW_PHONE);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame(['status' => 'success', 'redirect' => 'otp'], $result->toArray());
+        $this->assertArrayNotHasKey(SessionKey::LEAD_ID->value, $_SESSION);
+    }
+
+    public function testRequestOtpReusesRecentOtpVerificationTokenDto(): void
+    {
+        // Production shape: OtpApiService stores the DTOs, so the reuse check takes the ArrayAccess branch.
+        $token = new OtpVerificationToken('ref-123', self::PRIMARY_API_URL, 'ideamart', time() - 100);
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::PHONE_DATA->value] = Validator::normalizePhone(self::RAW_PHONE, $this->carrierConfig);
+
+        $this->otpServiceMock->expects($this->never())->method('getOtp');
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Reusing existing valid OTP token', $this->anything());
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame($token, $_SESSION[SessionKey::OTP_TOKEN->value]);
+    }
+
+    public static function staleTokenProvider(): array
+    {
+        // Token factories: time() must be read when the test runs, not when PHPUnit collects providers.
+        return [
+            'token older than 300s' => [
+                fn () => ['referenceNo' => 'ref', 'createdAt' => time() - 301],
+                self::SAME_PHONE,
+            ],
+            'dto older than 300s' => [
+                fn () => new OtpVerificationToken('ref', self::PRIMARY_API_URL, 'ideamart', time() - 301),
+                self::SAME_PHONE,
+            ],
+            'different number' => [
+                fn () => ['referenceNo' => 'ref', 'createdAt' => time()],
+                ['capi_format' => '94711234567'] + self::SAME_PHONE,
+            ],
+            'sms fallback sentinel' => [fn () => true, self::SAME_PHONE],
+        ];
+    }
+
+    #[DataProvider('staleTokenProvider')]
+    public function testRequestOtpDoesNotReuseStaleOrMismatchedToken(
+        \Closure $makeToken,
+        array $existingPhoneData
+    ): void {
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $makeToken();
+        $_SESSION[SessionKey::PHONE_DATA->value] = $existingPhoneData;
+        $newToken = new OtpVerificationToken('new-ref', self::PRIMARY_API_URL, 'ideamart', time());
+
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->willReturn(['status' => 'success', 'verificationToken' => $newToken]);
+        $this->loggerMock->expects($this->never())->method('notice');
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
+    }
+
+    public function testRequestOtpSuccessStoresTokenAndIncrementsRateLimit(): void
+    {
+        $request = $this->phoneRequest();
+        $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
+
+        $this->rateLimiterMock->expects($this->once())->method('increment')->with('phone_submission:127.0.0.1');
+        $this->analyticsTrackerMock->expects($this->once())
+            ->method('logVisitWithPhone')
+            ->with($request, $this->callback(fn (PhoneNumber $p) => $p['capi_format'] === self::CAPI_PHONE));
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', self::TELCO_PHONE, $this->callback(
+                fn (array $m) => $m['client'] === 'WEBAPP'
+                    && $m['appCode'] === $request->getUri()
+                    && $m['ip'] === '127.0.0.1'
+            ))
+            ->willReturn(['status' => 'success', 'verificationToken' => $token]);
+
+        $result = $this->service->requestOtp($request, self::RAW_PHONE);
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame(['status' => 'success', 'redirect' => 'otp'], $result->toArray());
+        $this->assertStringStartsWith('lead-', $_SESSION[SessionKey::LEAD_ID->value]);
+        $this->assertEquals(
+            Validator::normalizePhone(self::RAW_PHONE, $this->carrierConfig),
+            $_SESSION[SessionKey::PHONE_DATA->value]
+        );
+        $this->assertSame($token, $_SESSION[SessionKey::OTP_TOKEN->value]);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $_SESSION);
+    }
+
+    public function testRequestOtpForwardsPlatformAndTelcoFormatOfTheNumber(): void
+    {
+        // config/carriers.php: prefix 71 -> mspace
+        $token = new OtpVerificationToken('ref456', 'https://mspace.api/first', 'mspace', time());
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('mspace', 'tel:94711234567', $this->anything())
+            ->willReturn(['status' => 'success', 'verificationToken' => $token]);
+
+        $result = $this->service->requestOtp($this->phoneRequest('0711234567'), '0711234567');
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertSame('mspace', $_SESSION[SessionKey::PHONE_DATA->value]['platform']);
+        $this->assertSame($token, $_SESSION[SessionKey::OTP_TOKEN->value]);
+    }
+
+    public function testRequestOtpLeadIdFallsBackToUniqidWhenRandomBytesFails(): void
+    {
+        $GLOBALS['mock_random_bytes_fail_service'] = true;
+        $this->otpServiceMock->method('getOtp')
+            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'ref']]);
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertTrue($result->isSuccess());
+        // uniqid() is 13 hex chars; bin2hex(random_bytes(16)) would be 32.
+        $this->assertMatchesRegularExpression('/^lead-[0-9a-f]{13}$/', $_SESSION[SessionKey::LEAD_ID->value]);
+    }
+
+    public static function alreadyRegisteredProvider(): array
+    {
+        $registered = ['statusDetail' => ApiStatus::ALREADY_REGISTERED->value];
+        $otherError = ['statusDetail' => 'some other error'];
+        $app1 = ['base_url' => 'https://ideamart.api/app1', 'response' => $registered];
+        $app2 = ['base_url' => 'https://ideamart.api/app2', 'response' => $registered];
+        $app2Failed = ['base_url' => 'https://ideamart.api/app2', 'response' => $otherError];
+        $finalUrl = ['finalUrl' => 'https://ideamart.api/app2'];
+        return [
+            // [extra response keys, scope, already_registered_apps, final_app]
+            'all apps' => [['failedAttempts' => [$app1, $app2]] + $finalUrl, 'all', ['app1', 'app2'], 'app2'],
+            'some apps' => [['failedAttempts' => [$app1, $app2Failed]] + $finalUrl, 'some', ['app1'], 'app2'],
+            // No failedAttempts and no finalUrl at all: the `?? []` / `?? ''` defaults must hold.
+            'bare response' => [[], 'all', [], ''],
+        ];
+    }
+
+    #[DataProvider('alreadyRegisteredProvider')]
+    public function testRequestOtpAlreadyRegistered(
+        array $responseDetails,
+        string $scope,
+        array $registeredApps,
+        string $finalApp
+    ): void {
+        $this->otpServiceMock->method('getOtp')->willReturn(
+            ['status' => 'error', 'statusDetail' => ApiStatus::ALREADY_REGISTERED->value] + $responseDetails
+        );
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with("User already registered on $scope of the services for this platform.", [
+                'platform' => 'ideamart',
+                'phone' => self::CAPI_PHONE,
+                'already_registered_apps' => $registeredApps,
+                'final_app' => $finalApp,
+            ]);
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(['status' => 'error', 'message' => ApiStatus::ALREADY_REGISTERED->value], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(OtpFlowService::ALREADY_REGISTERED, $_SESSION[SessionKey::ALREADY_REGISTERED->value]);
+        $this->assertInstanceOf(PhoneNumber::class, $_SESSION[SessionKey::PHONE_DATA->value]);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $_SESSION);
+        $this->assertArrayNotHasKey(SessionKey::LEAD_ID->value, $_SESSION);
+        $this->assertArrayNotHasKey(SessionKey::OTP_TOKEN->value, $_SESSION);
+    }
+
+    public function testRequestOtpTemporaryErrorWithoutSmsConfig(): void
+    {
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'error',
+            'statusDetail' => 'E1310: Temporary System Error',
+            'finalUrl' => 'https://ideamart.api/app2',
+        ]);
+        $this->loggerMock->expects($this->once())
+            ->method('error')
+            ->with('Temporary system error encountered', ['platform' => 'ideamart', 'final_app' => 'app2']);
+
+        $result = $this->makeService([])->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_GENERIC], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(OtpFlowService::ERROR_GENERIC, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
+        $this->assertArrayNotHasKey(SessionKey::OTP_TOKEN->value, $_SESSION);
+    }
+
+    public function testRequestOtpTemporaryErrorWithSmsConfigShowsSmsFallback(): void
+    {
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'error',
+            'statusDetail' => ApiStatus::TEMPORARY_FAILURE->value,
+            'finalUrl' => 'https://ideamart.api/app2',
+        ]);
+        $this->loggerMock->expects($this->never())->method('error');
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Temporary system error encountered, showing SMS fallback link.', [
+                'platform' => 'ideamart',
+                'final_app' => 'app2',
+            ]);
+
+        $result = $this->makeService(self::SMS_CONFIG)->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(
+            ['status' => 'error', 'message' => 'Temporary system error', 'showSmsLink' => true, 'redirect' => 'otp'],
+            $result->toArray()
+        );
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSmsFallbackSessionState();
+    }
+
+    public function testRequestOtpMaxRequestsWithSmsConfigBlocksAndShowsSmsFallback(): void
+    {
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'error',
+            'statusDetail' => ApiStatus::MAX_REQUESTS_REACHED->value,
+        ]);
+        $this->rateLimiterMock->expects($this->once())
+            ->method('block')
+            ->with('otp_max_requests:' . self::CAPI_PHONE, 3600);
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Maximum OTP requests reached, showing SMS fallback link.', [
+                'platform' => 'ideamart',
+                'phone' => self::CAPI_PHONE,
+            ]);
+
+        $result = $this->makeService(self::SMS_CONFIG)->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(
+            [
+                'status' => 'error',
+                'message' => 'Maximum number of OTP requests reached',
+                'showSmsLink' => true,
+                'redirect' => 'otp',
+            ],
+            $result->toArray()
+        );
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSmsFallbackSessionState();
+    }
+
+    public function testRequestOtpMaxRequestsWithoutSmsConfigReturnsError(): void
+    {
+        $this->otpServiceMock->method('getOtp')->willReturn([
+            'status' => 'error',
+            'statusDetail' => 'E1853: Maximum number of OTP requests reached',
+        ]);
+        $this->rateLimiterMock->expects($this->once())
+            ->method('block')
+            ->with('otp_max_requests:' . self::CAPI_PHONE, 3600);
+        $this->loggerMock->expects($this->once())
+            ->method('notice')
+            ->with('Maximum OTP requests reached without SMS fallback configured.', [
+                'platform' => 'ideamart',
+                'phone' => self::CAPI_PHONE,
+            ]);
+
+        $result = $this->makeService([])->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $expected = 'Maximum number of OTP requests reached for 0771234567. Please try again in 60 minutes';
+        $this->assertSame(['status' => 'error', 'message' => $expected], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame($expected, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
+        $this->assertArrayNotHasKey(SessionKey::OTP_TOKEN->value, $_SESSION);
+    }
+
+    public function testRequestOtpGenericFailure(): void
+    {
+        $response = ['status' => 'error', 'statusDetail' => 'Requested ApplicationID is not allowed'];
+        $this->otpServiceMock->method('getOtp')->willReturn($response);
+        $this->rateLimiterMock->expects($this->never())->method('block');
+        $this->loggerMock->expects($this->once())
+            ->method('error')
+            ->with(
+                'All OTP request attempts failed for the user.',
+                ['platform' => 'ideamart', 'phone' => self::CAPI_PHONE] + $response
+            );
+
+        $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
+
+        $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_GENERIC], $result->toArray());
+        $this->assertSame('./', $result->redirectUrl);
+        $this->assertSame(OtpFlowService::ERROR_GENERIC, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $_SESSION);
+    }
+
+    // --- processVerification ---
+
     public function testProcessVerificationInvalidOtpLength(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $request = new Request();
         $result = $this->service->processVerification($request, '123'); // only 3 digits
@@ -90,15 +538,15 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_INVALID_LENGTH, $result->message);
         $this->assertEquals('otp', $result->redirectUrl);
-        $this->assertEquals(OtpFlowService::ERROR_OTP_INVALID_LENGTH, $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertEquals(OtpFlowService::ERROR_OTP_INVALID_LENGTH, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
     }
 
     public function testProcessVerificationSuccessSubscribed(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
-        $this->sessionData[SessionKey::INVALID_OTP_COUNT->value] = 2;
-        $this->sessionData[SessionKey::SHOW_SMS_LINK->value] = false;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::INVALID_OTP_COUNT->value] = 2;
+        $_SESSION[SessionKey::SHOW_SMS_LINK->value] = false;
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
@@ -112,16 +560,16 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertTrue($result->isSuccess());
         $this->assertEquals('thanks', $result->redirectUrl);
-        $this->assertArrayHasKey(SessionKey::REG_ID->value, $this->sessionData);
-        $this->assertStringStartsWith('reg-', $this->sessionData[SessionKey::REG_ID->value]);
-        $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $this->sessionData);
-        $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $this->sessionData);
+        $this->assertArrayHasKey(SessionKey::REG_ID->value, $_SESSION);
+        $this->assertStringStartsWith('reg-', $_SESSION[SessionKey::REG_ID->value]);
+        $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $_SESSION);
+        $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
     }
 
     public function testProcessVerificationSuccessMspacePlatform(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'mspace', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
@@ -135,13 +583,13 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertTrue($result->isSuccess());
         $this->assertEquals('thanks', $result->redirectUrl);
-        $this->assertArrayHasKey(SessionKey::REG_ID->value, $this->sessionData);
+        $this->assertArrayHasKey(SessionKey::REG_ID->value, $_SESSION);
     }
 
     public function testProcessVerificationMissingPlatformReturnsError(): void
     {
         $token = ['referenceNo' => 'ref123', 'usedApiUrl' => self::PRIMARY_API_URL]; // no platform
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
@@ -158,7 +606,7 @@ class OtpFlowServiceTest extends TestCase
     public function testProcessVerificationUnexpectedSubscriptionStatus(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
@@ -178,7 +626,7 @@ class OtpFlowServiceTest extends TestCase
     public function testProcessVerificationInvalidOtpIncrementsCountAndShowsSmsLinkOnThirdAttempt(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpFlowService::OTP_INVALID]);
 
@@ -188,25 +636,25 @@ class OtpFlowServiceTest extends TestCase
         $result1 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result1->isSuccess());
         $this->assertFalse($result1->showSmsLink);
-        $this->assertEquals(1, $this->sessionData[SessionKey::INVALID_OTP_COUNT->value]);
+        $this->assertEquals(1, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
 
         // Attempt 2
         $result2 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result2->isSuccess());
         $this->assertFalse($result2->showSmsLink);
-        $this->assertEquals(2, $this->sessionData[SessionKey::INVALID_OTP_COUNT->value]);
+        $this->assertEquals(2, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
 
         // Attempt 3
         $result3 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result3->isSuccess());
         $this->assertTrue($result3->showSmsLink);
-        $this->assertEquals(3, $this->sessionData[SessionKey::INVALID_OTP_COUNT->value]);
+        $this->assertEquals(3, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
     }
 
     public function testProcessVerificationOtpNotFoundWithSmsConfigShowsSmsLink(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
@@ -222,19 +670,11 @@ class OtpFlowServiceTest extends TestCase
 
     public function testProcessVerificationOtpNotFoundWithoutSmsConfigTriggersAutoRenewal(): void
     {
-        $service = new OtpFlowService(
-            [], // no sms config
-            require __DIR__ . '/../config/carriers.php',
-            $this->otpServiceMock,
-            $this->analyticsTrackerMock,
-            $this->loggerMock,
-            $this->sessionServiceMock,
-            $this->rateLimiterMock
-        );
+        $service = $this->makeService([]); // no sms config
 
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
-        $this->sessionData[SessionKey::PHONE_DATA->value] = [
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::PHONE_DATA->value] = [
             'telco_format' => 'tel:94771234567',
             'capi_format' => '94771234567',
             'platform' => 'ideamart'
@@ -258,14 +698,14 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
         $this->assertEquals('otp', $result->redirectUrl);
-        $this->assertSame($newToken, $this->sessionData[SessionKey::OTP_TOKEN->value]);
+        $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
     public function testProcessVerificationExpiredTokenAutoRenewSuccess(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time() - 400);
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
-        $this->sessionData[SessionKey::PHONE_DATA->value] = [
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::PHONE_DATA->value] = [
             'telco_format' => 'tel:94771234567',
             'capi_format' => '94771234567',
             'platform' => 'ideamart'
@@ -289,7 +729,7 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
         $this->assertEquals('otp', $result->redirectUrl);
-        $this->assertSame($newToken, $this->sessionData[SessionKey::OTP_TOKEN->value]);
+        $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
     public function testProcessVerificationRateLimitExceededTriggersFallbackSuccess(): void
@@ -298,19 +738,11 @@ class OtpFlowServiceTest extends TestCase
         $this->rateLimiterMock->method('check')->willReturn(false); // rate limit exceeded
         $this->rateLimiterMock->expects($this->once())->method('clear');
 
-        $service = new OtpFlowService(
-            $this->config,
-            require __DIR__ . '/../config/carriers.php',
-            $this->otpServiceMock,
-            $this->analyticsTrackerMock,
-            $this->loggerMock,
-            $this->sessionServiceMock,
-            $this->rateLimiterMock
-        );
+        $service = $this->makeService($this->config);
 
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
-        $this->sessionData[SessionKey::PHONE_DATA->value] = [
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::PHONE_DATA->value] = [
             'telco_format' => 'tel:94771234567',
             'capi_format' => '94771234567',
             'platform' => 'ideamart'
@@ -336,7 +768,7 @@ class OtpFlowServiceTest extends TestCase
     public function testProcessVerificationFallbackMissingDataRedirectsHome(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
         // No phone_data in session
 
         $this->otpServiceMock->expects($this->once())
