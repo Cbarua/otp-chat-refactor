@@ -63,26 +63,6 @@ abstract class BaseController
     }
 
     /**
-     * Generates a random ID with a given prefix.
-     */
-    protected function generateRandomId(string $prefix): string
-    {
-        try {
-            return $prefix . bin2hex(random_bytes(16));
-        } catch (\Exception $e) {
-            return $prefix . uniqid();
-        }
-    }
-
-    /**
-     * Converts a timestamp to a date string.
-     */
-    protected function timestampToDateString(int|string $timestamp): string
-    {
-        return date('Y-m-d H:i:s', \intval($timestamp));
-    }
-
-    /**
      * Extracts app names from URLs.
      */
     protected function getAppNamesFromUrls(array $urls): array

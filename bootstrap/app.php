@@ -159,6 +159,7 @@ $container['AnalyticsTrackerService'] = function ($c) {
 $container['OtpFlowService'] = function ($c) {
     return new OtpFlowService(
         $c['config'],
+        $c['carrierConfig'],
         $c['OtpApiService'],
         $c['AnalyticsTrackerService'],
         $c['Logger'],
@@ -207,13 +208,11 @@ $session->set('visitor_id', $visitorId);
 $container['FormController'] = function ($c) {
     return new FormController(
         $c['config'],
-        $c['carrierConfig'],
-        $c['OtpApiService'],
+        $c['OtpFlowService'],
         $c['AnalyticsTrackerService'],
         $c['Logger'],
         $c['SessionService'],
-        $c['CsrfService'],
-        $c['RateLimiterService']
+        $c['CsrfService']
     );
 };
 

@@ -3,18 +3,14 @@
 
 namespace App\Controller;
 
-use App\Service\OtpApiInterface;
+use App\Service\OtpFlowService;
 use App\Service\SessionService;
-use App\Utils\Validator;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\CsrfService;
-use App\Service\RateLimiterService;
 use App\Service\AnalyticsTrackerService;
 use App\Enum\SessionKey;
-use App\Enum\ApiStatus;
-use App\DTO\PhoneNumber;
 
 class FormController extends BaseController
 {
@@ -31,28 +27,16 @@ class FormController extends BaseController
     public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
     public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
 
-    // API Statuses
-    private const API_STATUS_ALREADY_REGISTERED = ApiStatus::ALREADY_REGISTERED->value;
-    private const API_ERROR_TEMPORARY_FAILURE = ApiStatus::TEMPORARY_FAILURE->value;
-    private const API_ERROR_MAX_REQUESTS = ApiStatus::MAX_REQUESTS_REACHED->value;
-    private const ALREADY_REGISTERED = 'You are already registered!';
-
     // Error Messages
-    private const ERROR_INVALID_PHONE = 'Invalid phone number. Example: 0771234567';
-    private const ERROR_MAX_REQUESTS = 'Maximum number of OTP requests reached for :number. Please try again in :minutes minutes';
-    private const ERROR_GENERIC = 'An error occurred. Please try again later.';
-    private const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
-    private const ERROR_CSRF = 'Security check failed. Please try again.';
+    private const ERROR_CSRF = OtpFlowService::ERROR_CSRF;
 
     public function __construct(
         private array $config,
-        private array $carrierConfig,
-        private OtpApiInterface $otpService,
+        private OtpFlowService $otpFlowService,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
         private SessionService $session,
-        private CsrfService $csrfService,
-        private RateLimiterService $rateLimiter
+        private CsrfService $csrfService
     ) {
     }
 
@@ -129,244 +113,14 @@ class FormController extends BaseController
             return $this->redirect('./');
         }
 
-        // 1. Rate Limiting Check
-        // Limit: 5 attempts per IP per minute
-        $rateLimitKey = 'phone_submission:' . $userInfo['ip'];
-        if (!$this->rateLimiter->check($rateLimitKey, 5, 60)) {
-            $this->logger->warning('Rate limit exceeded for phone submission.', ['rate_limit_key' => $rateLimitKey]);
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => self::ERROR_RATE_LIMIT]);
-            }
-            $this->session->set(self::SESSION_ERROR, self::ERROR_RATE_LIMIT);
-            return $this->redirect('./');
-        }
-        $this->rateLimiter->increment($rateLimitKey);
-
-        // 2. Validate phone number
-        $phoneData = Validator::normalizePhone($rawPhone, $this->carrierConfig, 'LK', $this->logger);
-        if ($phoneData === null) {
-            $this->logger->warning('Invalid phone number submitted', ['raw_phone' => $rawPhone]);
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => self::ERROR_INVALID_PHONE]);
-            }
-            $this->session->set(self::SESSION_ERROR, self::ERROR_INVALID_PHONE);
-            return $this->redirect('./');
-        }
-
-        // Check if number is blocked due to Max OTP requests (60 minute block)
-        $remainingSeconds = $this->rateLimiter->getRemainingSeconds('otp_max_requests:' . $phoneData['capi_format']);
-        if ($remainingSeconds > 0) {
-            $remainingMinutes = max(1, (int) ceil($remainingSeconds / 60));
-            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, $remainingMinutes], self::ERROR_MAX_REQUESTS);
-            $this->logger->warning('Phone number blocked due to max OTP requests limit', [
-                'phone' => $phoneData['capi_format'],
-                'remaining_seconds' => $remainingSeconds,
-                'remaining_minutes' => $remainingMinutes
-            ]);
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => $errorMessage]);
-            }
-            $this->session->set(self::SESSION_ERROR, $errorMessage);
-            return $this->redirect('./');
-        }
-
-        // 3. Log visit with phone, store FB cookies
-        $this->analyticsTracker->logVisitWithPhone($request, $phoneData);
-
-        // 4. Request OTP from the API. The service now handles platform-specific endpoints.
-        // Check if we have a valid recent OTP for this number to avoid redundant calls
-        $existingToken = $this->session->get(self::SESSION_OTP_TOKEN);
-        $existingPhoneData = $this->session->get(self::SESSION_PHONE_DATA);
-
-        // Check if phone matches and token is valid (less than 5 minutes old)
-        $isSameNumber = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
-        $isRecent = false;
-        if (is_array($existingToken) || $existingToken instanceof \ArrayAccess) {
-            $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
-            $tokenAge = time() - $tokenCreatedAt;
-            $isRecent = $tokenAge < 300;
-        }
-
-        if ($isSameNumber && $isRecent) {
-            $this->logger->notice('Reusing existing valid OTP token', [
-                'phone' => $phoneData['capi_format'],
-                'created_at' => $this->timestampToDateString($tokenCreatedAt),
-                'now' => $this->timestampToDateString(time()),
-                'age' => $tokenAge
-            ]);
-            // Skip API call and reuse existing flow
-            if ($isAjax) {
-                return $this->json(['status' => 'success', 'redirect' => 'otp']);
-            }
-            return $this->redirect('otp');
-        }
-
-        $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
-        $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
-
-        // 5. Handle the final API response
-        return $this->handleOtpApiResponse($request, $response, $phoneData);
-    }
-
-    /**
-     * Handles the final API response after attempting to get an OTP.
-     */
-    private function handleOtpApiResponse(Request $request, array $response, PhoneNumber|array $phoneData): Response
-    {
-        $isAjax = $request->isXmlHttpRequest();
-
-        // Success condition is now based on the 'status' key from our service
-        if (($response['status'] ?? null) === 'success') {
-            // SUCCESS: OTP was requested.
-            $leadId = $this->generateRandomId("lead-");
-            $this->session->set(self::SESSION_LEAD_ID, $leadId);
-            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-            // Store the opaque token for the verification step.
-            $this->session->set(self::SESSION_OTP_TOKEN, $response['verificationToken']);
-
-            if ($isAjax) {
-                return $this->json(['status' => 'success', 'redirect' => 'otp']);
-            }
-            return $this->redirect('otp');
-        }
-
-        // FAILURE: No URL succeeded.
-        $statusDetail = strtolower($response['statusDetail'] ?? '');
-
-        // Check statusDetail for "already registered"
-        if ($statusDetail === self::API_STATUS_ALREADY_REGISTERED) {
-            // Only log if ALL failed attempts were due to "already registered"
-            $failedAttempts = $response['failedAttempts'] ?? [];
-            $alreadyRegisteredUrls = [];
-            foreach ($failedAttempts as $attempt) {
-                if (($attempt['response']['statusDetail'] ?? '') === self::API_STATUS_ALREADY_REGISTERED) {
-                    $alreadyRegisteredUrls[] = $attempt['base_url'];
-                }
-            }
-
-            // Scope is "all" if ALL failed attempts were due to "already registered"
-            // added \ before count() for compiler optimization
-            $scope = \count($alreadyRegisteredUrls) === \count($failedAttempts) ? 'all' : 'some';
-
-            $this->logger->notice("User already registered on $scope of the services for this platform.", [
-                'platform' => $phoneData['platform'],
-                'phone' => $phoneData['capi_format'],
-                'already_registered_apps' => $this->getAppNamesFromUrls($alreadyRegisteredUrls),
-                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
-            ]);
-
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => self::API_STATUS_ALREADY_REGISTERED]);
-            }
-
-            $this->session->set(self::SESSION_ALREADY_REGISTERED, self::ALREADY_REGISTERED);
-            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-
-        // Check statusDetail for "temporary system error"
-        } elseif (str_contains($statusDetail, self::API_ERROR_TEMPORARY_FAILURE)) {
-            $smsConfig = $this->getSmsConfig($request);
-            $smsNumber = $smsConfig['number'] ?? null;
-            $smsKeyword = $smsConfig['keyword'] ?? null;
-
-            if (!($smsNumber && $smsKeyword)) {
-                $this->logger->error('Temporary system error encountered', [
-                    'platform' => $phoneData['platform'],
-                    'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
-                ]);
-                if ($isAjax) {
-                    return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC]);
-                }
-                $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
-                return $this->redirect('./');
-            }
-
-            $leadId = $this->generateRandomId("lead-");
-            $this->session->set(self::SESSION_LEAD_ID, $leadId);
-            $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-            $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
-            $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
-            $this->logger->notice('Temporary system error encountered, showing SMS fallback link.', [
-                'platform' => $phoneData['platform'],
-                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0],
-            ]);
-
-            if ($isAjax) {
-                return $this->json([
-                    'status' => 'error', 
-                    'message' => 'Temporary system error', 
-                    'showSmsLink' => true, 
-                    'redirect' => 'otp'
-                ]);
-            }
-            return $this->redirect('otp');
-        } elseif (str_contains($statusDetail, self::API_ERROR_MAX_REQUESTS)) {
-            $rawPhone = $request->request->get('mobile', '');
-            $this->rateLimiter->block('otp_max_requests:' . $phoneData['capi_format'], 3600);
-
-            $smsConfig = $this->getSmsConfig($request);
-            $smsNumber = $smsConfig['number'] ?? null;
-            $smsKeyword = $smsConfig['keyword'] ?? null;
-
-            if ($smsNumber && $smsKeyword) {
-                $leadId = $this->generateRandomId("lead-");
-                $this->session->set(self::SESSION_LEAD_ID, $leadId);
-                $this->session->set(self::SESSION_PHONE_DATA, $phoneData);
-                $this->session->set(self::SESSION_SHOW_SMS_LINK, true);
-                $this->session->set(self::SESSION_OTP_TOKEN, true); // Dummy value to indicate OTP step
-                $this->logger->notice('Maximum OTP requests reached, showing SMS fallback link.', [
-                    'platform' => $phoneData['platform'],
-                    'phone' => $phoneData['capi_format'],
-                ]);
-
-                if ($isAjax) {
-                    return $this->json([
-                        'status' => 'error',
-                        'message' => 'Maximum number of OTP requests reached',
-                        'showSmsLink' => true,
-                        'redirect' => 'otp'
-                    ]);
-                }
-                return $this->redirect('otp');
-            }
-
-            $remainingMinutes = 60;
-            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, $remainingMinutes], self::ERROR_MAX_REQUESTS);
-            $this->logger->notice('Maximum OTP requests reached without SMS fallback configured.', [
-                'platform' => $phoneData['platform'],
-                'phone' => $phoneData['capi_format'],
-            ]);
-
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => $errorMessage]);
-            }
-            $this->session->set(self::SESSION_ERROR, $errorMessage);
-            return $this->redirect('./');
-        } else {
-            $this->session->set(self::SESSION_ERROR, self::ERROR_GENERIC);
-            $this->logger->error('All OTP request attempts failed for the user.', [
-                'platform' => $phoneData['platform'],
-                'phone' => $phoneData['capi_format'],
-                ...$response
-            ]);
-        }
+        $result = $this->otpFlowService->requestOtp($request, (string) $rawPhone);
 
         if ($isAjax) {
-            // Clear error messages
+            // The flash messages are for the HTML redirect; the JSON body carries the message instead.
             $this->session->unset(self::SESSION_ERROR);
             $this->session->unset(self::SESSION_ALREADY_REGISTERED);
-            return $this->json(['status' => 'error', 'message' => self::ERROR_GENERIC]);
+            return $this->json($result->toArray());
         }
-        return $this->redirect('./');
-    }
-
-    /**
-     * Retrieves SMS configuration, respecting test override cookies if present.
-     */
-    private function getSmsConfig(Request $request): ?array
-    {
-        if ($request->cookies->has('test_disable_sms')) {
-            return null;
-        }
-        return $this->config['sms'] ?? null;
+        return $this->redirect($result->redirectUrl);
     }
 }

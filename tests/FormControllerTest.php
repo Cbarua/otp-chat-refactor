@@ -27,6 +27,7 @@ use App\Service\SessionService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Service\AnalyticsTrackerService;
+use App\Service\OtpFlowService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -138,15 +139,23 @@ class FormControllerTest extends TestCase
             $this->loggerMock
         );
 
-        $this->controller = new TestableFormController(
+        $otpFlowService = new OtpFlowService(
             $this->config,
             $this->carrierConfig,
             $this->otpServiceMock,
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $this->controller = new TestableFormController(
+            $this->config,
+            $otpFlowService,
+            $this->analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
     }
 
@@ -431,13 +440,11 @@ class FormControllerTest extends TestCase
 
         $controller = new TestableFormController(
             $this->config,
-            $this->carrierConfig,
-            $this->otpServiceMock,
+            new OtpFlowService($this->config, $this->carrierConfig, $this->otpServiceMock, $analyticsTrackerWithoutCapi, $this->loggerMock, $this->sessionServiceMock, $this->rateLimiterMock),
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
-            $this->rateLimiterMock
+            $this->csrfServiceMock
         );
 
         $request = Request::createFromGlobals();
@@ -576,13 +583,11 @@ class FormControllerTest extends TestCase
 
         $controller = new TestableFormController(
             $configWithSms,
-            $this->carrierConfig,
-            $this->otpServiceMock,
+            new OtpFlowService($configWithSms, $this->carrierConfig, $this->otpServiceMock, $analyticsTracker, $this->loggerMock, $this->sessionServiceMock, $this->rateLimiterMock),
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
-            $this->rateLimiterMock
+            $this->csrfServiceMock
         );
 
         $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
@@ -778,13 +783,11 @@ class FormControllerTest extends TestCase
 
         $controller = new TestableFormController(
             $configWithSms,
-            $this->carrierConfig,
-            $this->otpServiceMock,
+            new OtpFlowService($configWithSms, $this->carrierConfig, $this->otpServiceMock, $analyticsTracker, $this->loggerMock, $this->sessionServiceMock, $this->rateLimiterMock),
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
-            $this->rateLimiterMock
+            $this->csrfServiceMock
         );
 
         $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
@@ -847,13 +850,11 @@ class FormControllerTest extends TestCase
 
         $controller = new TestableFormController(
             $configWithSms,
-            $this->carrierConfig,
-            $this->otpServiceMock,
+            new OtpFlowService($configWithSms, $this->carrierConfig, $this->otpServiceMock, $analyticsTracker, $this->loggerMock, $this->sessionServiceMock, $this->rateLimiterMock),
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
-            $this->rateLimiterMock
+            $this->csrfServiceMock
         );
 
         $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);

@@ -15,6 +15,7 @@ use App\Service\SessionService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Service\AnalyticsTrackerService;
+use App\Service\OtpFlowService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -123,15 +124,23 @@ class FormControllerLoggerTest extends TestCase
             $this->loggerMock
         );
 
-        $this->controller = new TestableFormControllerLogger(
+        $otpFlowService = new OtpFlowService(
             $this->config,
             $this->carrierConfig,
             $this->otpServiceMock,
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock,
             $this->rateLimiterMock
+        );
+
+        $this->controller = new TestableFormControllerLogger(
+            $this->config,
+            $otpFlowService,
+            $this->analyticsTracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            $this->csrfServiceMock
         );
     }
 

@@ -116,6 +116,7 @@ class OtpControllerTest extends TestCase
 
         $this->otpFlowService = new OtpFlowService(
             $this->config,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $this->analyticsTracker,
             $this->loggerMock,
@@ -202,6 +203,7 @@ class OtpControllerTest extends TestCase
 
         $otpFlowServiceWithoutCapi = new OtpFlowService(
             $this->config,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
@@ -576,6 +578,7 @@ class OtpControllerTest extends TestCase
 
         $otpFlowService = new OtpFlowService(
             $configNoSms,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
@@ -624,6 +627,7 @@ class OtpControllerTest extends TestCase
 
         $otpFlowService = new OtpFlowService(
             $configNoSms,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
@@ -1021,6 +1025,7 @@ class OtpControllerTest extends TestCase
 
         $otpFlowService = new OtpFlowService(
             $configNoSms,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,
@@ -1068,6 +1073,7 @@ class OtpControllerTest extends TestCase
 
         $otpFlowService = new OtpFlowService(
             $configNoSms,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $analyticsTracker,
             $this->loggerMock,

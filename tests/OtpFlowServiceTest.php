@@ -70,6 +70,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->service = new OtpFlowService(
             $this->config,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $this->analyticsTrackerMock,
             $this->loggerMock,
@@ -223,6 +224,7 @@ class OtpFlowServiceTest extends TestCase
     {
         $service = new OtpFlowService(
             [], // no sms config
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $this->analyticsTrackerMock,
             $this->loggerMock,
@@ -298,6 +300,7 @@ class OtpFlowServiceTest extends TestCase
 
         $service = new OtpFlowService(
             $this->config,
+            require __DIR__ . '/../config/carriers.php',
             $this->otpServiceMock,
             $this->analyticsTrackerMock,
             $this->loggerMock,

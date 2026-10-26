@@ -6,6 +6,7 @@ namespace App\Service;
 
 use App\DTO\OtpFlowResult;
 use App\DTO\OtpVerificationToken;
+use App\DTO\PhoneNumber;
 use App\Enum\ApiStatus;
 use App\Enum\SessionKey;
 use App\Utils\Validator;
@@ -13,8 +14,12 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Handles the complete OTP verification workflow including rate limiting,
- * API verification, attempt counting, SMS fallback triggering, and automatic endpoint renewal/fallback.
+ * Handles the complete OTP flow: the request step (rate limiting, phone validation, token reuse,
+ * the OTP request with app fallback, SMS fallback) and the verification step (rate limiting,
+ * API verification, attempt counting, SMS fallback triggering, token renewal and app fallback).
+ *
+ * Both steps write the flash message for the HTML flow to the session and return an OtpFlowResult
+ * that carries the same message for the XHR flow.
  */
 class OtpFlowService
 {
@@ -27,6 +32,9 @@ class OtpFlowService
     public const SUB_STATUS_REGISTERED = 'REGISTERED';
 
     // Error Messages
+    public const ALREADY_REGISTERED = 'You are already registered!';
+    public const ERROR_INVALID_PHONE = 'Invalid phone number. Example: 0771234567';
+    public const ERROR_MAX_REQUESTS = 'Maximum number of OTP requests reached for :number. Please try again in :minutes minutes';
     public const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
     public const ERROR_CSRF = 'Security check failed. Please try again.';
     public const ERROR_REGISTRATION_FAILED = 'Registration failed. Please try again.';
@@ -41,12 +49,206 @@ class OtpFlowService
 
     public function __construct(
         private array $config,
+        private array $carrierConfig,
         private OtpApiInterface $otpService,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
         private SessionService $session,
         private RateLimiterService $rateLimiter
     ) {
+    }
+
+    /**
+     * Processes a phone number submission: rate limits, validates the number, reuses a fresh
+     * OTP token or requests a new one, and stores the state for the OTP step in the session.
+     */
+    public function requestOtp(Request $request, string $rawPhone): OtpFlowResult
+    {
+        $userInfo = $this->analyticsTracker->getUserInfo($request);
+
+        // 1. Rate Limiting Check
+        // Limit: 5 attempts per IP per minute
+        $rateLimitKey = 'phone_submission:' . $userInfo['ip'];
+        if (!$this->rateLimiter->check($rateLimitKey, 5, 60)) {
+            $this->logger->warning('Rate limit exceeded for phone submission.', ['rate_limit_key' => $rateLimitKey]);
+            $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_RATE_LIMIT);
+            return OtpFlowResult::error(self::ERROR_RATE_LIMIT, './');
+        }
+        $this->rateLimiter->increment($rateLimitKey);
+
+        // 2. Validate phone number
+        $phoneData = Validator::normalizePhone($rawPhone, $this->carrierConfig, 'LK', $this->logger);
+        if ($phoneData === null) {
+            $this->logger->warning('Invalid phone number submitted', ['raw_phone' => $rawPhone]);
+            $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_INVALID_PHONE);
+            return OtpFlowResult::error(self::ERROR_INVALID_PHONE, './');
+        }
+
+        // Check if number is blocked due to Max OTP requests (60 minute block)
+        $remainingSeconds = $this->rateLimiter->getRemainingSeconds('otp_max_requests:' . $phoneData['capi_format']);
+        if ($remainingSeconds > 0) {
+            $remainingMinutes = max(1, (int) ceil($remainingSeconds / 60));
+            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, $remainingMinutes], self::ERROR_MAX_REQUESTS);
+            $this->logger->warning('Phone number blocked due to max OTP requests limit', [
+                'phone' => $phoneData['capi_format'],
+                'remaining_seconds' => $remainingSeconds,
+                'remaining_minutes' => $remainingMinutes
+            ]);
+            $this->session->set(SessionKey::ERROR_MESSAGE, $errorMessage);
+            return OtpFlowResult::error($errorMessage, './');
+        }
+
+        // 3. Log visit with phone, store FB cookies
+        $this->analyticsTracker->logVisitWithPhone($request, $phoneData);
+
+        // 4. Request OTP from the API. The service handles platform-specific endpoints.
+        // Check if we have a valid recent OTP for this number to avoid redundant calls
+        $existingToken = $this->session->get(SessionKey::OTP_TOKEN);
+        $existingPhoneData = $this->session->get(SessionKey::PHONE_DATA);
+
+        // Check if phone matches and token is valid (less than 5 minutes old)
+        $isSameNumber = ($existingPhoneData['capi_format'] ?? '') === ($phoneData['capi_format'] ?? null);
+        $isRecent = false;
+        if (is_array($existingToken) || $existingToken instanceof \ArrayAccess) {
+            $tokenCreatedAt = $existingToken['createdAt'] ?? 0;
+            $tokenAge = time() - $tokenCreatedAt;
+            $isRecent = $tokenAge < 300;
+        }
+
+        if ($isSameNumber && $isRecent) {
+            $this->logger->notice('Reusing existing valid OTP token', [
+                'phone' => $phoneData['capi_format'],
+                'created_at' => $this->timestampToDateString((int) $tokenCreatedAt),
+                'now' => $this->timestampToDateString(time()),
+                'age' => $tokenAge
+            ]);
+            // Skip API call and reuse existing flow
+            return OtpFlowResult::success('otp');
+        }
+
+        $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
+        $response = $this->otpService->getOtp($phoneData['platform'], $phoneData['telco_format'], $metaData);
+
+        // 5. Handle the final API response
+        return $this->handleOtpApiResponse($request, $rawPhone, $response, $phoneData);
+    }
+
+    /**
+     * Handles the final API response after attempting to get an OTP.
+     */
+    private function handleOtpApiResponse(Request $request, string $rawPhone, array $response, PhoneNumber|array $phoneData): OtpFlowResult
+    {
+        // Success condition is based on the 'status' key from our service
+        if (($response['status'] ?? null) === 'success') {
+            // SUCCESS: OTP was requested.
+            $this->session->set(SessionKey::LEAD_ID, $this->generateRandomId('lead-'));
+            $this->session->set(SessionKey::PHONE_DATA, $phoneData);
+            // Store the opaque token for the verification step.
+            $this->session->set(SessionKey::OTP_TOKEN, $response['verificationToken']);
+            return OtpFlowResult::success('otp');
+        }
+
+        // FAILURE: No URL succeeded.
+        $statusDetail = strtolower($response['statusDetail'] ?? '');
+
+        // Check statusDetail for "already registered"
+        if ($statusDetail === ApiStatus::ALREADY_REGISTERED->value) {
+            // Only log if ALL failed attempts were due to "already registered"
+            $failedAttempts = $response['failedAttempts'] ?? [];
+            $alreadyRegisteredUrls = [];
+            foreach ($failedAttempts as $attempt) {
+                if (($attempt['response']['statusDetail'] ?? '') === ApiStatus::ALREADY_REGISTERED->value) {
+                    $alreadyRegisteredUrls[] = $attempt['base_url'];
+                }
+            }
+
+            // Scope is "all" if ALL failed attempts were due to "already registered"
+            $scope = \count($alreadyRegisteredUrls) === \count($failedAttempts) ? 'all' : 'some';
+
+            $this->logger->notice("User already registered on $scope of the services for this platform.", [
+                'platform' => $phoneData['platform'],
+                'phone' => $phoneData['capi_format'],
+                'already_registered_apps' => $this->getAppNamesFromUrls($alreadyRegisteredUrls),
+                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0] ?? '',
+            ]);
+
+            $this->session->set(SessionKey::ALREADY_REGISTERED, self::ALREADY_REGISTERED);
+            $this->session->set(SessionKey::PHONE_DATA, $phoneData);
+            return OtpFlowResult::error(ApiStatus::ALREADY_REGISTERED->value, './');
+        }
+
+        // Check statusDetail for "temporary system error"
+        if (str_contains($statusDetail, ApiStatus::TEMPORARY_FAILURE->value)) {
+            $smsConfig = $this->getSmsConfig($request);
+            $smsNumber = $smsConfig['number'] ?? null;
+            $smsKeyword = $smsConfig['keyword'] ?? null;
+
+            if (!($smsNumber && $smsKeyword)) {
+                $this->logger->error('Temporary system error encountered', [
+                    'platform' => $phoneData['platform'],
+                    'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0] ?? '',
+                ]);
+                $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_GENERIC);
+                return OtpFlowResult::error(self::ERROR_GENERIC, './');
+            }
+
+            $this->session->set(SessionKey::LEAD_ID, $this->generateRandomId('lead-'));
+            $this->session->set(SessionKey::PHONE_DATA, $phoneData);
+            $this->session->set(SessionKey::SHOW_SMS_LINK, true);
+            $this->session->set(SessionKey::OTP_TOKEN, true); // Dummy value to indicate OTP step
+            $this->logger->notice('Temporary system error encountered, showing SMS fallback link.', [
+                'platform' => $phoneData['platform'],
+                'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0] ?? '',
+            ]);
+            return OtpFlowResult::error('Temporary system error', 'otp', true, 'otp');
+        }
+
+        if (str_contains($statusDetail, ApiStatus::MAX_REQUESTS_REACHED->value)) {
+            $this->rateLimiter->block('otp_max_requests:' . $phoneData['capi_format'], 3600);
+
+            $smsConfig = $this->getSmsConfig($request);
+            $smsNumber = $smsConfig['number'] ?? null;
+            $smsKeyword = $smsConfig['keyword'] ?? null;
+
+            if ($smsNumber && $smsKeyword) {
+                $this->session->set(SessionKey::LEAD_ID, $this->generateRandomId('lead-'));
+                $this->session->set(SessionKey::PHONE_DATA, $phoneData);
+                $this->session->set(SessionKey::SHOW_SMS_LINK, true);
+                $this->session->set(SessionKey::OTP_TOKEN, true); // Dummy value to indicate OTP step
+                $this->logger->notice('Maximum OTP requests reached, showing SMS fallback link.', [
+                    'platform' => $phoneData['platform'],
+                    'phone' => $phoneData['capi_format'],
+                ]);
+                return OtpFlowResult::error('Maximum number of OTP requests reached', 'otp', true, 'otp');
+            }
+
+            $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, 60], self::ERROR_MAX_REQUESTS);
+            $this->logger->notice('Maximum OTP requests reached without SMS fallback configured.', [
+                'platform' => $phoneData['platform'],
+                'phone' => $phoneData['capi_format'],
+            ]);
+            $this->session->set(SessionKey::ERROR_MESSAGE, $errorMessage);
+            return OtpFlowResult::error($errorMessage, './');
+        }
+
+        $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_GENERIC);
+        $this->logger->error('All OTP request attempts failed for the user.', [
+            'platform' => $phoneData['platform'],
+            'phone' => $phoneData['capi_format'],
+            ...$response
+        ]);
+        return OtpFlowResult::error(self::ERROR_GENERIC, './');
+    }
+
+    /**
+     * Retrieves SMS configuration, respecting test override cookies if present.
+     */
+    private function getSmsConfig(Request $request): ?array
+    {
+        if ($request->cookies->has('test_disable_sms')) {
+            return null;
+        }
+        return $this->config['sms'] ?? null;
     }
 
     /**
