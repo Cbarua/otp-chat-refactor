@@ -5,9 +5,12 @@
 // This assumes .env is in the parent directory
 $envFile = '.env';
 
-// Only allow switching via cookie if NOT in production (safety check)
-// OR if you are sure your .env.test is safe to expose logic-wise.
-if (isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+// Test hooks: acceptance tests steer the app with cookies, honoured only when the server process sets
+// TEST_HOOKS=1 (composer scripts, compose stack). Production never sets it, and a .env file can't:
+// createImmutable() doesn't call putenv(), so getenv() only sees the real environment.
+$testHooks = getenv('TEST_HOOKS') === '1';
+$testEnv = $testHooks && ($_COOKIE['APP_ENV'] ?? null) === 'testing';
+if ($testEnv) {
     $envFile = '.env.test';
 }
 
@@ -49,11 +52,10 @@ $safeJsonDecode = function ($key) {
     return $decoded ?? [];
 };
 
-// Get cookie value
-$disableSmsFallback = isset($_COOKIE['DISABLE_SMS_FALLBACK']) && $_COOKIE['DISABLE_SMS_FALLBACK'] === 'true';
+$disableSmsFallback = $testHooks && ($_COOKIE['DISABLE_SMS_FALLBACK'] ?? null) === 'true';
 
 $ideamartUrls = $safeJsonDecode('IDEAMART_URLS');
-if (isset($_COOKIE['TEST_IDEAMART_URLS']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+if ($testEnv && isset($_COOKIE['TEST_IDEAMART_URLS'])) {
     $decodedUrls = json_decode(rawurldecode($_COOKIE['TEST_IDEAMART_URLS']), true);
     if (json_last_error() === JSON_ERROR_NONE) {
         $ideamartUrls = $decodedUrls;
@@ -66,7 +68,7 @@ $capiLogDir = $_ENV['CAPI_LOG_DIR'] ?? __DIR__ . "/../logs/capi";
 $appFilename = 'app.log';
 $capiFilename = 'capi.log';
 
-if (isset($_COOKIE['TEST_LOG_DIR']) && isset($_COOKIE['APP_ENV']) && $_COOKIE['APP_ENV'] === 'testing') {
+if ($testEnv && isset($_COOKIE['TEST_LOG_DIR'])) {
     $testLogDir = $_COOKIE['TEST_LOG_DIR'];
     $testClass = $_COOKIE['TEST_CLASS_NAME'] ?? 'UnknownTest';
     $appLogDir = $testLogDir . '/' . $testClass;
@@ -95,6 +97,9 @@ return [
         'mspace' => $safeJsonDecode('MSPACE_URLS'),
         'bdapps' => $safeJsonDecode('BDAPPS_URLS'),
     ],
+
+    // Forwarded to the mock API so it logs under the test's folder.
+    'api_test_cookies' => $testHooks ? array_intersect_key($_COOKIE, array_flip(['TEST_LOG_DIR', 'TEST_CLASS_NAME', 'APP_ENV'])) : [],
 
     'sms' => [
         'number' => $disableSmsFallback ? null : $_ENV['SMS_NUMBER'] ?? null,

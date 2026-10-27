@@ -16,12 +16,18 @@ class OtpApiService implements OtpApiInterface
     private array $apiConfig;
     private ClientInterface $client;
     private LoggerInterface $logger;
+    private array $testCookies;
 
-    public function __construct(array $apiConfig, LoggerInterface $logger, ClientInterface $httpClient)
+    /**
+     * @param array $testCookies Cookies sent with every provider request (name => value); config/app.php
+     *                           fills them only when TEST_HOOKS is on.
+     */
+    public function __construct(array $apiConfig, LoggerInterface $logger, ClientInterface $httpClient, array $testCookies = [])
     {
         $this->apiConfig = $apiConfig;
         $this->logger = $logger;
         $this->client = $httpClient;
+        $this->testCookies = $testCookies;
     }
 
     /**
@@ -169,15 +175,9 @@ class OtpApiService implements OtpApiInterface
             ];
 
             // Forward test environment cookies to Mock API if present
-            $cookies = [];
-            foreach (['TEST_LOG_DIR', 'TEST_CLASS_NAME', 'APP_ENV'] as $cookieName) {
-                if (isset($_COOKIE[$cookieName])) {
-                    $cookies[] = "{$cookieName}=" . rawurlencode($_COOKIE[$cookieName]);
-                }
-            }
-            if (!empty($cookies)) {
+            if (!empty($this->testCookies)) {
                 $options['headers'] = [
-                    'Cookie' => implode('; ', $cookies)
+                    'Cookie' => http_build_query($this->testCookies, '', '; ', PHP_QUERY_RFC3986)
                 ];
             }
 

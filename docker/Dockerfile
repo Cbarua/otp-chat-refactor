@@ -7,7 +7,11 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 RUN dnf -y install httpd php8.4 php8.4-cli php8.4-common php8.4-fpm php8.4-mbstring \
         php8.4-opcache php8.4-pdo php8.4-process php8.4-sodium php8.4-xml \
     && dnf clean all \
-    && echo 'session.upload_progress.enabled = 0' > /etc/php.d/99-hardening.ini
+    && echo 'session.upload_progress.enabled = 0' > /etc/php.d/99-hardening.ini \
+    && echo 'env[TEST_HOOKS] = $TEST_HOOKS' >> /etc/php-fpm.d/www.conf
+
+# php-fpm clears the environment (clear_env), so the line above passes compose.yaml's
+# TEST_HOOKS through to PHP; it turns the test cookies on (see config/app.php).
 
 # One vhost per test port: the app on 8080 (its public/.htaccess applies, as on the
 # server), the mock OTP provider on 8081. APP_ROOT is the repo, mounted at the same

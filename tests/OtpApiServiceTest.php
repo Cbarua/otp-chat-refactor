@@ -211,4 +211,28 @@ class OtpApiServiceTest extends TestCase
         $this->assertArrayHasKey('createdAt', $result['verificationToken']);
         $this->assertIsInt($result['verificationToken']['createdAt']);
     }
+
+    public function testForwardsTestCookiesToTheProvider(): void
+    {
+        $handler = new MockHandler([new Response(200, [], json_encode(['statusCode' => 'S1000', 'referenceNo' => '1']))]);
+        $client = new Client(['handler' => HandlerStack::create($handler)]);
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $client, ['TEST_LOG_DIR' => '/tmp/test logs', 'APP_ENV' => 'testing']);
+
+        $service->getOtp('mspace', 'tel:94711234567', []);
+
+        $this->assertSame('TEST_LOG_DIR=%2Ftmp%2Ftest%20logs; APP_ENV=testing', $handler->getLastRequest()->getHeaderLine('Cookie'));
+    }
+
+    public function testIgnoresVisitorCookiesWithoutTestCookies(): void
+    {
+        $handler = new MockHandler([new Response(200, [], json_encode(['statusCode' => 'S1000', 'referenceNo' => '1']))]);
+        $client = new Client(['handler' => HandlerStack::create($handler)]);
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $client);
+
+        $_COOKIE['TEST_LOG_DIR'] = '/tmp/evil';
+        $service->getOtp('mspace', 'tel:94711234567', []);
+        unset($_COOKIE['TEST_LOG_DIR']);
+
+        $this->assertFalse($handler->getLastRequest()->hasHeader('Cookie'));
+    }
 }

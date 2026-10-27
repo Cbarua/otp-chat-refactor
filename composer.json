@@ -37,12 +37,24 @@
         }
     },
     "scripts": {
-        "test:ac": "php scripts/run-acceptance.php",
+        "test:ac": [
+            "@putenv TEST_HOOKS=1",
+            "php scripts/run-acceptance.php"
+        ],
         "dev:wd": "C:\\webdriver\\msedgedriver.exe --port=10888",
         "dev:wdln": "./webdriver/msedgedriver --port=10888",
-        "dev:mockapi": "php -S localhost:8081 ./public/backend-test-api/index.php",
-        "dev:frontend": "php -S localhost:8080 -t public",
-        "test:acceptance": "vendor/bin/codecept run Acceptance,NoJs",
+        "dev:mockapi": [
+            "@putenv TEST_HOOKS=1",
+            "php -S localhost:8081 ./public/backend-test-api/index.php"
+        ],
+        "dev:frontend": [
+            "@putenv TEST_HOOKS=1",
+            "php -S localhost:8080 -t public"
+        ],
+        "test:acceptance": [
+            "@putenv TEST_HOOKS=1",
+            "vendor/bin/codecept run Acceptance,NoJs"
+        ],
         "test:unit": "vendor/bin/phpunit --display-all-issues --testdox",
         "test:coverage": [
             "@putenv XDEBUG_MODE=coverage",

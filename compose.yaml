@@ -3,13 +3,15 @@
 # provider on localhost:8081, the same ports the Codeception suites and `php -S` use. `composer test:ac` runs
 # Codeception inside this container while it is up; by hand, `docker compose exec app vendor/bin/codecept run NoJs`
 # (host-side runs write the SQLite file across the bind mount). The repo is mounted at its host path because the
-# acceptance tests send that path in the TEST_LOG_DIR cookie. The mock's testapi gateway reaches the
+# acceptance tests send that path in the TEST_LOG_DIR cookie. TEST_HOOKS turns those test cookies on for
+# php-fpm and for Codeception run here (production never sets it). The mock's testapi gateway reaches the
 # telco-api container through the host (it publishes 127.0.0.1:80).
 services:
   app:
     build: docker
     environment:
       APP_ROOT: ${PWD}
+      TEST_HOOKS: "1"
     working_dir: ${PWD}
     volumes:
       - .:${PWD}

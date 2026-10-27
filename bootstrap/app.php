@@ -117,7 +117,7 @@ $container['CapiLogger'] = function ($c) {
 
 // OTP API Service
 $container['OtpApiService'] = function ($c) {
-    return new OtpApiService($c['config']['api'], $c['Logger'], $c['GuzzleClient']);
+    return new OtpApiService($c['config']['api'], $c['Logger'], $c['GuzzleClient'], $c['config']['api_test_cookies']);
 };
 
 // Database Connection (Singleton with WAL mode & busy timeout)

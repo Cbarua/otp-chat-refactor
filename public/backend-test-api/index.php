@@ -1,6 +1,12 @@
 <?php
 // public/backend-test-api/index.php
 
+// The mock ships to production with the app; it answers only where the server sets TEST_HOOKS=1.
+if (getenv('TEST_HOOKS') !== '1') {
+    http_response_code(404);
+    exit;
+}
+
 // 1. Parse the Request URI
 $requestUri = $_SERVER['REQUEST_URI'];
 $scriptName = $_SERVER['SCRIPT_NAME'];
