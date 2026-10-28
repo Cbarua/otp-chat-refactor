@@ -2,15 +2,11 @@
 # ==============================================================================
 # Multi-Instance Deployment Script for Amazon Linux 2023 / Apache
 # Updates all app instances located two levels deep in /var/www/html/*/*/
-# Excludes specified instances (e.g., saveesha/sewmi)
 # ==============================================================================
 
 set -e
 
 ROOT_DIR="/var/www/html"
-EXCLUDED_INSTANCES=(
-    "saveesha/sewmi"
-)
 
 echo "======================================================================"
 echo " Starting Multi-Instance Deployment: $(date)"
@@ -18,32 +14,11 @@ echo " Base Directory: ${ROOT_DIR}"
 echo "======================================================================"
 
 updated_count=0
-skipped_count=0
-
-# Helper function to check if an array contains a value
-is_excluded() {
-    local target="$1"
-    for item in "${EXCLUDED_INSTANCES[@]}"; do
-        if [ "$target" = "$item" ]; then
-            return 0
-        fi
-    done
-    return 1
-}
 
 for dir in "${ROOT_DIR}"/*/*; do
     # Ensure it is a valid directory containing a git repository
     if [ -d "$dir" ] && [ -d "$dir/.git" ]; then
         rel_path="${dir#"${ROOT_DIR}/"}"
-
-        if is_excluded "$rel_path"; then
-            echo ""
-            echo "----------------------------------------------------------------------"
-            echo " [SKIPPED] ${rel_path} (Explicitly Excluded)"
-            echo "----------------------------------------------------------------------"
-            ((skipped_count++)) || true
-            continue
-        fi
 
         echo ""
         echo "----------------------------------------------------------------------"
@@ -90,6 +65,5 @@ echo ""
 echo "======================================================================"
 echo " Deployment Summary"
 echo "  - Total Instances Updated: ${updated_count}"
-echo "  - Total Instances Skipped: ${skipped_count}"
 echo "  - Timestamp: $(date)"
 echo "======================================================================"
