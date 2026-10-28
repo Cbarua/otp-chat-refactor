@@ -25,53 +25,13 @@ use Psr\Log\LoggerInterface;
  */
 class SimpleUserLoggerService
 {
-    private ?SQLite3 $db = null;
-    private ?string $dbPath = null;
-    private LoggerInterface $logger;
-    private bool $ownsConnection = false;
-
     /**
-     * @param SQLite3|string $dbOrPath The direct file path to the SQLite database or shared SQLite3 connection.
+     * @param SQLite3 $db The shared connection from DatabaseConnectionFactory.
      * @param LoggerInterface $logger
      */
-    public function __construct(SQLite3|string $dbOrPath, LoggerInterface $logger)
+    public function __construct(private readonly SQLite3 $db, private readonly LoggerInterface $logger)
     {
-        $this->logger = $logger;
-        if ($dbOrPath instanceof SQLite3) {
-            $this->db = $dbOrPath;
-            $this->ownsConnection = false;
-            $this->ensureSchema();
-        } else {
-            $this->dbPath = $dbOrPath;
-            $this->ownsConnection = true;
-            $this->initializeDatabase();
-        }
-    }
-
-    /**
-     * Opens the DB connection and ensures the table AND unique index exist.
-     */
-    private function initializeDatabase(): void
-    {
-        try {
-            $dir = dirname($this->dbPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0775, true);
-            }
-
-            $this->db = new SQLite3($this->dbPath);
-
-            // Mitigate "database is locked" errors:
-            // 1. Wait up to 5000ms (5s) when the DB is busy
-            $this->db->busyTimeout(5000);
-            // 2. Enable Write-Ahead Logging (WAL) for better concurrency
-            $this->db->exec('PRAGMA journal_mode = WAL;');
-
-            $this->ensureSchema();
-        } catch (Exception $e) {
-            $this->logger->error("SimpleUserLoggerService DB Error", ['error' => $e->getMessage()]);
-            $this->db = null;
-        }
+        $this->ensureSchema();
     }
 
     /**
@@ -79,10 +39,6 @@ class SimpleUserLoggerService
      */
     private function ensureSchema(): void
     {
-        if (!$this->db) {
-            return;
-        }
-
         try {
             // Create the table (this is the same as your original)
             $createTableSQL = "CREATE TABLE IF NOT EXISTS logs (
@@ -111,9 +67,6 @@ class SimpleUserLoggerService
             // -------------------------------------------------
         } catch (Exception $e) {
             $this->logger->error("SimpleUserLoggerService Schema Error", ['error' => $e->getMessage()]);
-            if ($this->ownsConnection) {
-                $this->db = null;
-            }
         }
     }
 
@@ -122,11 +75,6 @@ class SimpleUserLoggerService
      */
     public function logVisit(string $visitorId, string $ip, string $userAgent, ?string $phoneNumber = null): void
     {
-        if (!$this->db) {
-            $this->logger->error("SimpleUserLoggerService: No database connection.");
-            return;
-        }
-
         $timestamp = date('Y-m-d H:i:s');
 
         try {
@@ -155,13 +103,6 @@ class SimpleUserLoggerService
             }
         } catch (\Throwable $e) {
             $this->logger->error("SimpleUserLoggerService logVisit Exception", ['error' => $e->getMessage()]);
-        }
-    }
-
-    public function __destruct()
-    {
-        if ($this->ownsConnection) {
-            $this->db?->close();
         }
     }
 }

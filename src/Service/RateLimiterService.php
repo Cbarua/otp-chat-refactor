@@ -9,56 +9,17 @@ use Psr\Log\LoggerInterface;
 
 class RateLimiterService
 {
-    private ?SQLite3 $db = null;
-    private ?string $dbPath = null;
-    private LoggerInterface $logger;
-    private bool $ownsConnection = false;
-
     /**
-     * @param SQLite3|string $dbOrPath The shared SQLite3 instance or file path.
+     * @param SQLite3 $db The shared connection from DatabaseConnectionFactory.
      * @param LoggerInterface $logger
      */
-    public function __construct(SQLite3|string $dbOrPath, LoggerInterface $logger)
+    public function __construct(private readonly SQLite3 $db, private readonly LoggerInterface $logger)
     {
-        $this->logger = $logger;
-        if ($dbOrPath instanceof SQLite3) {
-            $this->db = $dbOrPath;
-            $this->ownsConnection = false;
-            $this->ensureSchema();
-        } else {
-            $this->dbPath = $dbOrPath;
-            $this->ownsConnection = true;
-            $this->initializeDatabase();
-        }
-    }
-
-    private function initializeDatabase(): void
-    {
-        try {
-            $dir = dirname($this->dbPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0775, true);
-            }
-
-            $this->db = new SQLite3($this->dbPath);
-
-            // Mitigate "database is locked" errors:
-            $this->db->busyTimeout(5000);
-            $this->db->exec('PRAGMA journal_mode = WAL;');
-
-            $this->ensureSchema();
-        } catch (Exception $e) {
-            $this->logger->error("RateLimiterService DB Error", ['error' => $e->getMessage()]);
-            $this->db = null;
-        }
+        $this->ensureSchema();
     }
 
     private function ensureSchema(): void
     {
-        if (!$this->db) {
-            return;
-        }
-
         try {
             // Create table for rate limits
             $createTableSQL = "CREATE TABLE IF NOT EXISTS rate_limits (
@@ -72,9 +33,6 @@ class RateLimiterService
             }
         } catch (Exception $e) {
             $this->logger->error("RateLimiterService Schema Error", ['error' => $e->getMessage()]);
-            if ($this->ownsConnection) {
-                $this->db = null;
-            }
         }
     }
 
@@ -88,10 +46,6 @@ class RateLimiterService
      */
     public function check(string $key, int $maxAttempts, int $windowSeconds): bool
     {
-        if (!$this->db) {
-            return true; // Fail open if DB is down
-        }
-
         $now = time();
 
         try {
@@ -135,10 +89,6 @@ class RateLimiterService
      */
     public function increment(string $key): void
     {
-        if (!$this->db) {
-            return;
-        }
-
         try {
             $stmt = $this->db->prepare("UPDATE rate_limits SET count = count + 1 WHERE key = :key");
             $stmt->bindValue(':key', $key, SQLITE3_TEXT);
@@ -153,10 +103,6 @@ class RateLimiterService
      */
     public function clear(string $key): void
     {
-        if (!$this->db) {
-            return;
-        }
-
         try {
             $stmt = $this->db->prepare("DELETE FROM rate_limits WHERE key = :key");
             $stmt->bindValue(':key', $key, SQLITE3_TEXT);
@@ -183,10 +129,6 @@ class RateLimiterService
      */
     public function block(string $key, int $durationSeconds): void
     {
-        if (!$this->db) {
-            return;
-        }
-
         try {
             $resetAt = date('Y-m-d H:i:s', time() + $durationSeconds);
             $stmt = $this->db->prepare("INSERT INTO rate_limits (key, count, reset_at) VALUES (:key, 1, :reset)
@@ -204,10 +146,6 @@ class RateLimiterService
      */
     public function getRemainingSeconds(string $key): int
     {
-        if (!$this->db) {
-            return 0;
-        }
-
         try {
             $stmt = $this->db->prepare("SELECT reset_at FROM rate_limits WHERE key = :key");
             $stmt->bindValue(':key', $key, SQLITE3_TEXT);
@@ -226,13 +164,6 @@ class RateLimiterService
         } catch (Exception $e) {
             $this->logger->error("RateLimiterService GetRemainingSeconds Error", ['error' => $e->getMessage()]);
             return 0;
-        }
-    }
-
-    public function __destruct()
-    {
-        if ($this->ownsConnection) {
-            $this->db?->close();
         }
     }
 }

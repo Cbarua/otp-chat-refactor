@@ -6,28 +6,20 @@ use Psr\Log\LoggerInterface;
 
 class RateLimiterServiceTest extends TestCase
 {
-    private string $dbPath;
+    private \SQLite3 $db;
     private RateLimiterService $rateLimiter;
     private $loggerMock;
 
     protected function setUp(): void
     {
-        $this->dbPath = sys_get_temp_dir() . '/test_rate_limiter.db';
-        if (file_exists($this->dbPath)) {
-            unlink($this->dbPath);
-        }
-
+        $this->db = new \SQLite3(':memory:');
         $this->loggerMock = $this->createMock(LoggerInterface::class);
-        $this->rateLimiter = new RateLimiterService($this->dbPath, $this->loggerMock);
+        $this->rateLimiter = new RateLimiterService($this->db, $this->loggerMock);
     }
 
     protected function tearDown(): void
     {
-        // Explicitly close connection if possible or just unlink
-        unset($this->rateLimiter);
-        if (file_exists($this->dbPath)) {
-            unlink($this->dbPath);
-        }
+        $this->db->close();
     }
 
     public function testCheckAllowsRequestWithinLimit(): void
@@ -87,78 +79,16 @@ class RateLimiterServiceTest extends TestCase
         $this->assertFalse($this->rateLimiter->check($key, 2, 60));
     }
 
-    public function testInitializeDatabaseFailure(): void
-    {
-        $invalidPath = sys_get_temp_dir(); // Directory path causes open failure
-
-        $this->loggerMock->expects($this->once())->method('error')->with($this->stringContains('DB Error'));
-
-        new RateLimiterService($invalidPath, $this->loggerMock);
-    }
-
-    public function testCheckFailOpen(): void
-    {
-        // Create service with invalid path to force db to be null
-        $service = new RateLimiterService(sys_get_temp_dir(), $this->loggerMock);
-
-        // Should return true (allowed) when DB is down
-        $this->assertTrue($service->check('key', 5, 60));
-
-        // Increment should not throw
-        $service->increment('key');
-    }
-
-    public function testDestructorClosesDatabase(): void
-    {
-        $dbPath = sys_get_temp_dir() . '/test_rate_limiter_destruct.db';
-        if (file_exists($dbPath)) {
-            unlink($dbPath);
-        }
-
-        // Create service and let it go out of scope
-        $service = new RateLimiterService($dbPath, $this->loggerMock);
-        $service->check('test_key', 5, 60);
-
-        // Explicitly call destructor
-        unset($service);
-
-        // Try to delete the file - should succeed if connection is closed
-        $this->assertTrue(file_exists($dbPath));
-        @unlink($dbPath);
-        $this->assertFalse(file_exists($dbPath));
-    }
-
     public function testResetAtIsStoredAsText(): void
     {
         $key = 'test_format_key';
         $this->rateLimiter->check($key, 5, 60);
 
-        // Access private property $db using Reflection
-        $reflection = new \ReflectionClass($this->rateLimiter);
-        $property = $reflection->getProperty('db');
-        $db = $property->getValue($this->rateLimiter);
-
-        $resetAt = $db->querySingle("SELECT reset_at FROM rate_limits WHERE key = '$key'");
+        $resetAt = $this->db->querySingle("SELECT reset_at FROM rate_limits WHERE key = '$key'");
 
         // Assert it is a string and looks like a date
         $this->assertIsString($resetAt);
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $resetAt);
-    }
-
-    public function testConcurrencyConfiguration(): void
-    {
-        // Access private property $db using Reflection
-        $reflection = new \ReflectionClass($this->rateLimiter);
-        $property = $reflection->getProperty('db');
-        $db = $property->getValue($this->rateLimiter);
-
-        // 1. Verify WAL Mode
-        $journalMode = $db->querySingle("PRAGMA journal_mode");
-        $this->assertEquals('wal', strtolower($journalMode), "Journal mode should be WAL");
-
-        // 2. Verify Busy Timeout
-        $busyTimeout = $db->querySingle("PRAGMA busy_timeout");
-        $this->assertEquals(5000, $busyTimeout, "Busy timeout should be 5000ms");
     }
 
     public function testClearRemovesKey(): void
@@ -168,18 +98,14 @@ class RateLimiterServiceTest extends TestCase
         $this->rateLimiter->increment($key);
 
         // Verify it exists
-        $reflection = new \ReflectionClass($this->rateLimiter);
-        $property = $reflection->getProperty('db');
-        $db = $property->getValue($this->rateLimiter);
-
-        $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
+        $count = $this->db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
         $this->assertEquals(1, $count);
 
         // Clear it
         $this->rateLimiter->clear($key);
 
         // Verify it's gone
-        $count = $db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
+        $count = $this->db->querySingle("SELECT count(*) FROM rate_limits WHERE key = '$key'");
         $this->assertEquals(0, $count);
     }
 
@@ -197,17 +123,5 @@ class RateLimiterServiceTest extends TestCase
         $remaining = $this->rateLimiter->getRemainingSeconds($key);
         $this->assertGreaterThan(3590, $remaining);
         $this->assertLessThanOrEqual(3600, $remaining);
-    }
-
-    public function testSharedDatabaseConnectionInstance(): void
-    {
-        $db = new \SQLite3(':memory:');
-        $service = new RateLimiterService($db, $this->loggerMock);
-
-        $this->assertTrue($service->check('shared_key', 3, 60));
-        $service->increment('shared_key');
-        $this->assertTrue($service->check('shared_key', 3, 60));
-
-        $db->close();
     }
 }
