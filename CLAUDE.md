@@ -37,7 +37,7 @@ Request path: `public/index.php` (front controller, security headers, global 500
 
 **SMS fallback** (SMS link instead of the OTP input) turns on only when both `SMS_NUMBER` and `SMS_KEYWORD` are set. Triggers: temporary provider failure, max-requests block (also sets a 60-min `otp_max_requests:{phone}` block), 3 invalid OTPs, or OTP not found.
 
-**Tracking:** `AnalyticsTrackerService` handles PageView/Lead/CompleteRegistration for CAPI plus the SQLite visit log. The container returns `null` for `FacebookCapiService` when `FBCAPI_TOKEN` is empty. Event IDs (`pgview-*`, `lead-*`, `reg-*`) are kept in the session so Pixel and CAPI deduplicate. `UserLoggerService` is bound to `SimpleUserLoggerService`; `EnrichingUserLoggerService` is an alternative implementation that is not wired in.
+**Tracking:** `AnalyticsTrackerService` handles PageView/Lead/CompleteRegistration for CAPI plus the SQLite visit log. The container returns `null` for `FacebookCapiService` when `FBCAPI_TOKEN` is empty. Event IDs (`pgview-*`, `lead-*`, `reg-*`) are kept in the session so Pixel and CAPI deduplicate. The container key `UserLoggerService` holds a `SimpleUserLoggerService`.
 
 **Storage:** one SQLite file (`DB_PATH`, WAL mode) holds both the rate limits and the visit log. Monolog writes JSON (`OrderedJsonFormatter`) to the `Logger` (app) and `CapiLogger` channels, and `SessionIdProcessor` adds the `visitor_id` to every record.
 

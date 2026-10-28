@@ -13,7 +13,7 @@ use App\Service\UserInfoService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Service\AnalyticsTrackerService;
-use App\Service\UserLoggerInterface;
+use App\Service\SimpleUserLoggerService;
 use App\Service\OtpFlowService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -54,7 +54,7 @@ class OtpControllerTest extends TestCase
     private MockObject|SessionService $sessionServiceMock;
     private MockObject|CsrfService $csrfServiceMock;
     private MockObject|RateLimiterService $rateLimiterMock;
-    private MockObject|UserLoggerInterface $userLoggerMock;
+    private MockObject|SimpleUserLoggerService $userLoggerMock;
     private AnalyticsTrackerService $analyticsTracker;
     private OtpFlowService $otpFlowService;
 
@@ -85,7 +85,7 @@ class OtpControllerTest extends TestCase
         $this->sessionServiceMock = $this->createMock(SessionService::class);
         $this->csrfServiceMock = $this->createMock(CsrfService::class);
         $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
-        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
+        $this->userLoggerMock = $this->createMock(SimpleUserLoggerService::class);
 
         $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
         $this->sessionServiceMock->method('get')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $default = null) {

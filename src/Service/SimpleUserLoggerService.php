@@ -23,7 +23,7 @@ use Psr\Log\LoggerInterface;
  * It will automatically create a UNIQUE INDEX if one doesn't exist.
  * This index is necessary for the ON CONFLICT clause to work.
  */
-class SimpleUserLoggerService implements UserLoggerInterface
+class SimpleUserLoggerService
 {
     private ?SQLite3 $db = null;
     private ?string $dbPath = null;

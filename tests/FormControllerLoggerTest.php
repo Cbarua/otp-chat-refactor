@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\FormController;
 use App\DTO\OtpFlowResult;
 use App\Service\FacebookCapiService;
-use App\Service\UserLoggerInterface;
+use App\Service\SimpleUserLoggerService;
 use App\Service\UserInfoService;
 use App\Service\SessionService;
 use App\Service\CsrfService;
@@ -43,7 +43,7 @@ class FormControllerLoggerTest extends TestCase
     private TestableFormControllerLogger $controller;
     private array $config;
     private MockObject|OtpFlowService $otpFlowServiceMock;
-    private MockObject|UserLoggerInterface $userLoggerMock;
+    private MockObject|SimpleUserLoggerService $userLoggerMock;
     private MockObject|FacebookCapiService $capiServiceMock;
     private MockObject|LoggerInterface $loggerMock;
     private MockObject|UserInfoService $userInfoServiceMock;
@@ -72,7 +72,7 @@ class FormControllerLoggerTest extends TestCase
         ];
 
         $this->otpFlowServiceMock = $this->createMock(OtpFlowService::class);
-        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
+        $this->userLoggerMock = $this->createMock(SimpleUserLoggerService::class);
         $this->capiServiceMock = $this->createMock(FacebookCapiService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
         $this->userInfoServiceMock = $this->createMock(UserInfoService::class);

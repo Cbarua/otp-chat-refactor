@@ -19,7 +19,7 @@ class AnalyticsTrackerService
         private readonly ?FacebookCapiService $capiService,
         private readonly UserInfoService $userInfoService,
         private readonly SessionService $session,
-        private readonly UserLoggerInterface $userLogger,
+        private readonly SimpleUserLoggerService $userLogger,
         private readonly LoggerInterface $logger
     ) {
     }
@@ -268,7 +268,7 @@ class AnalyticsTrackerService
         return $this->capiService;
     }
 
-    public function getUserLogger(): UserLoggerInterface
+    public function getUserLogger(): SimpleUserLoggerService
     {
         return $this->userLogger;
     }

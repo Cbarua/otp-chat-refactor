@@ -11,7 +11,7 @@ use App\Controller\ThankYouController;
 use App\Service\FacebookCapiService;
 use App\Service\SessionService;
 use App\Service\UserInfoService;
-use App\Service\UserLoggerInterface;
+use App\Service\SimpleUserLoggerService;
 use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -48,7 +48,7 @@ class ThankYouControllerTest extends TestCase
     private MockObject|LoggerInterface $loggerMock;
     private MockObject|UserInfoService $userInfoServiceMock;
     private MockObject|SessionService $sessionServiceMock;
-    private MockObject|UserLoggerInterface $userLoggerMock;
+    private MockObject|SimpleUserLoggerService $userLoggerMock;
     private AnalyticsTrackerService $analyticsTracker;
     private array $sessionData;
 
@@ -67,7 +67,7 @@ class ThankYouControllerTest extends TestCase
         $this->loggerMock = $this->createMock(LoggerInterface::class);
         $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
         $this->sessionServiceMock = $this->createMock(SessionService::class);
-        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
+        $this->userLoggerMock = $this->createMock(SimpleUserLoggerService::class);
 
         $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
         $this->sessionServiceMock->method('get')->willReturnCallback(function (\App\Enum\SessionKey|string $key, $default = null) {

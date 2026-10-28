@@ -6,7 +6,7 @@ use App\Service\AnalyticsTrackerService;
 use App\Service\FacebookCapiService;
 use App\Service\UserInfoService;
 use App\Service\SessionService;
-use App\Service\UserLoggerInterface;
+use App\Service\SimpleUserLoggerService;
 use App\DTO\PhoneNumber;
 use App\Enum\SessionKey;
 use Psr\Log\LoggerInterface;
@@ -28,7 +28,7 @@ class AnalyticsTrackerServiceTest extends TestCase
         $this->capiServiceMock = $this->createMock(FacebookCapiService::class);
         $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
         $this->sessionServiceMock = $this->createMock(SessionService::class);
-        $this->userLoggerMock = $this->createMock(UserLoggerInterface::class);
+        $this->userLoggerMock = $this->createMock(SimpleUserLoggerService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
 
         $this->service = new AnalyticsTrackerService(
