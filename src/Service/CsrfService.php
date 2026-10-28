@@ -8,7 +8,6 @@ use App\Enum\SessionKey;
 class CsrfService
 {
     private SessionService $session;
-    public const SESSION_KEY = 'csrf_token';
 
     public function __construct(SessionService $session)
     {
@@ -37,15 +36,5 @@ class CsrfService
         }
 
         return hash_equals((string) $this->session->get(SessionKey::CSRF_TOKEN), $token);
-    }
-
-    /**
-     * Regenerates the token. Useful after login/logout or sensitive actions.
-     */
-    public function regenerateToken(): string
-    {
-        $token = bin2hex(random_bytes(32));
-        $this->session->set(SessionKey::CSRF_TOKEN, $token);
-        return $token;
     }
 }

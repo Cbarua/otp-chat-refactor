@@ -262,19 +262,4 @@ class AnalyticsTrackerService
 
         return $regId;
     }
-
-    public function getCapiService(): ?FacebookCapiService
-    {
-        return $this->capiService;
-    }
-
-    public function getUserLogger(): SimpleUserLoggerService
-    {
-        return $this->userLogger;
-    }
-
-    public function getUserInfoService(): UserInfoService
-    {
-        return $this->userInfoService;
-    }
 }

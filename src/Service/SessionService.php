@@ -67,16 +67,6 @@ class SessionService
     }
 
     /**
-     * Alias for unset() to support standard remove method convention.
-     *
-     * @param SessionKey|string $key The key of the item to remove.
-     */
-    public function remove(SessionKey|string $key): void
-    {
-        $this->unset($key);
-    }
-
-    /**
      * Get all session data.
      *
      * @return array

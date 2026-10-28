@@ -24,21 +24,6 @@ class PhoneNumber implements ArrayAccess, JsonSerializable
     }
 
     /**
-     * Creates a PhoneNumber instance from an array.
-     */
-    public static function fromArray(array $data): self
-    {
-        return new self(
-            rawNumber: (string) ($data['raw_number'] ?? $data['rawNumber'] ?? $data['capi_format'] ?? ''),
-            telcoFormat: (string) ($data['telco_format'] ?? $data['telcoFormat'] ?? ''),
-            capiFormat: (string) ($data['capi_format'] ?? $data['capiFormat'] ?? ''),
-            platform: (string) ($data['platform'] ?? ''),
-            value: (float) ($data['value'] ?? 0.0),
-            country: (string) ($data['country'] ?? 'LK')
-        );
-    }
-
-    /**
      * Converts the DTO to an associative array with standard keys.
      */
     public function toArray(): array

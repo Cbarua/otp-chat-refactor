@@ -102,15 +102,4 @@ class CsrfServiceTest extends TestCase
         $this->assertFalse($this->csrfService->validate(''));
         $this->assertFalse($this->csrfService->validate(null));
     }
-
-    public function testRegenerateToken(): void
-    {
-        $this->sessionMock->expects($this->once())
-            ->method('set')
-            ->with(self::SESSION_KEY, $this->isType('string'));
-
-        $token = $this->csrfService->regenerateToken();
-        $this->assertNotEmpty($token);
-        $this->assertIsString($token);
-    }
 }

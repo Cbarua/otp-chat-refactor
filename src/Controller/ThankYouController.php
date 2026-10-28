@@ -46,7 +46,7 @@ class ThankYouController extends BaseController
             null,
             false,
             false,
-            'page_view_id_thanks'
+            SessionKey::PAGE_VIEW_ID_THANK_YOU
         );
 
         // Fire "CompleteRegistration" CAPI Event

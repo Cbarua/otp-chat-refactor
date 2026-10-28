@@ -36,12 +36,12 @@ class SessionServiceTest extends TestCase
         $this->assertEquals('token_123', $_SESSION['otp_token']);
     }
 
-    public function testUnsetAndRemoveWithEnum(): void
+    public function testUnsetWithEnum(): void
     {
         $this->session->set(SessionKey::PHONE_DATA, ['phone' => '123']);
         $this->assertTrue($this->session->has(SessionKey::PHONE_DATA));
 
-        $this->session->remove(SessionKey::PHONE_DATA);
+        $this->session->unset(SessionKey::PHONE_DATA);
         $this->assertFalse($this->session->has(SessionKey::PHONE_DATA));
         $this->assertNull($this->session->get(SessionKey::PHONE_DATA));
     }

@@ -23,28 +23,6 @@ class OtpVerificationToken implements ArrayAccess, JsonSerializable
     }
 
     /**
-     * Creates an instance from an array.
-     */
-    public static function fromArray(array $data): self
-    {
-        return new self(
-            referenceNo: (string) ($data['referenceNo'] ?? $data['reference_no'] ?? ''),
-            usedApiUrl: (string) ($data['usedApiUrl'] ?? $data['used_api_url'] ?? ''),
-            platform: (string) ($data['platform'] ?? ''),
-            createdAt: (int) ($data['createdAt'] ?? $data['created_at'] ?? time()),
-            failedUrls: (array) ($data['failedUrls'] ?? $data['failed_urls'] ?? [])
-        );
-    }
-
-    /**
-     * Checks if the verification token is older than the TTL in seconds.
-     */
-    public function isExpired(int $ttlSeconds = 300): bool
-    {
-        return (time() - $this->createdAt) > $ttlSeconds;
-    }
-
-    /**
      * Returns a new instance with updated failedUrls.
      */
     public function withFailedUrls(array $failedUrls): self

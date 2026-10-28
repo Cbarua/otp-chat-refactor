@@ -47,22 +47,6 @@ class PhoneNumberTest extends TestCase
         $this->assertEquals(0.018, $phone['value']);
     }
 
-    public function testFromArrayFactory(): void
-    {
-        $data = [
-            'raw_number' => '0771234567',
-            'telco_format' => 'tel:94771234567',
-            'capi_format' => '94771234567',
-            'platform' => 'ideamart',
-            'value' => 0.02,
-            'country' => 'LK'
-        ];
-
-        $phone = PhoneNumber::fromArray($data);
-        $this->assertEquals('tel:94771234567', $phone->telcoFormat);
-        $this->assertEquals(0.02, $phone->value);
-    }
-
     public function testJsonSerialization(): void
     {
         $phone = new PhoneNumber(
