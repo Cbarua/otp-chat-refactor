@@ -67,7 +67,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Service**: `src/Service/OtpFlowService.php`, method `requestOtp(Request $request, string $rawPhone): OtpFlowResult`.
 *   **Request Modes**: Supports both standard HTML form posts and AJAX (`Request::isXmlHttpRequest`). The service returns an `OtpFlowResult` and writes no flash; `BaseController::respond()` returns `$result->toArray()` as JSON and clears any stale `SESSION_ERROR` / `SESSION_ALREADY_REGISTERED` (AJAX), or writes the result's message as the flash and redirects to `$result->next`, or back to the submitting page when it is null (HTML). The flash goes under `SESSION_ALREADY_REGISTERED` for an already registered number, and there is none for success, the SMS-fallback results or an expired session.
 *   **Validation Pipeline**:
-    1.  **CSRF Protection** (controller): Validates token using `CsrfService`. Returns JSON/redirects with `ERROR_CSRF` on failure without calling the service.
+    1.  **CSRF Protection** (controller): Validates token using `CsrfService`. Returns JSON/redirects with `ERROR_CSRF` on failure without calling the service; both send the visitor back to `/`, because only rendering the form issues a new token.
     2.  **IP Rate Limiting**: Checks `phone_submission:{ip}` via `RateLimiterService` (limit: **5 attempts per minute**).
     3.  **Phone Normalization**: Validates and formats number using `Validator::normalizePhone` (identifies carrier and platform, e.g., `mspace`).
     4.  **60-Minute Block Check**: Checks if number is currently blocked (`otp_max_requests:{phone}`). If blocked, returns remaining minutes formatted error.
@@ -157,7 +157,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 
 | Endpoint | Action / Result | HTML Behavior | AJAX Response (JSON) |
 | :--- | :--- | :--- | :--- |
-| `POST /` | CSRF Error | Redirect `/` + Session Error | `{"status": "error", "message": "Security check failed...", "redirect": null}` |
+| `POST /` | CSRF Error | Redirect `/` + Session Error | `{"status": "error", "message": "Security check failed...", "redirect": "./"}` |
 | `POST /` | Invalid Phone | Redirect `/` + Session Error | `{"status": "error", "message": "Invalid phone number...", "redirect": null}` |
 | `POST /` | 60-min Blocked | Redirect `/` + Session Error | `{"status": "error", "message": "Maximum number of OTP requests...", "redirect": null}` |
 | `POST /` | Already Registered | Redirect `/` + Already Registered | `{"status": "already_registered", "message": "You are already registered!", "redirect": null}` |

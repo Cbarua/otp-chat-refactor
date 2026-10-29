@@ -104,7 +104,8 @@ class FormController extends BaseController
         $csrfToken = $request->request->get('csrf_token');
         if (!$this->csrfService->validate($csrfToken)) {
             $this->logger->warning('CSRF token validation failed on phone form submission.', ['csrf_token' => $csrfToken]);
-            return $this->respond($request, OtpFlowResult::error(self::ERROR_CSRF), './');
+            // Only rendering the form issues a token, so XHR reloads it.
+            return $this->respond($request, OtpFlowResult::error(self::ERROR_CSRF, './'), './');
         }
 
         return $this->respond($request, $this->otpFlowService->requestOtp($request, (string) $rawPhone), './');

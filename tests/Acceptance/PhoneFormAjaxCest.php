@@ -260,6 +260,11 @@ final class PhoneFormAjaxCest
         $I->seeInCurrentUrl('/');
         $I->see('Security check failed. Please try again.', '#phoneError');
         $I->dontSeeElement('#alreadyRegistered', ['style' => 'display: block;']);
+
+        // The JS reloads the form 3 s after the response, which issues a fresh token and shows no error
+        $I->wait(3);
+        $I->seeInCurrentUrl('/');
+        $I->dontSee('Security check failed. Please try again.', '#phoneError');
     }
 
     public function testPhoneFormAjaxRateLimitExceeded(AcceptanceTester $I): void

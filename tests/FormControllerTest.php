@@ -325,6 +325,8 @@ class FormControllerTest extends TestCase
         $data = json_decode($response->getContent(), true);
         $this->assertEquals('error', $data['status']);
         $this->assertEquals('Security check failed. Please try again.', $data['message']);
+        $this->assertSame('./', $data['redirect']);
+        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlFlashesServiceErrorAndStays(): void
