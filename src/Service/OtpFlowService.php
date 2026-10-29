@@ -44,7 +44,8 @@ class OtpFlowService
         private LoggerInterface $logger,
         private SessionService $session,
         private RateLimiterService $rateLimiter,
-        private OtpFlowState $otpFlowState
+        private OtpFlowState $otpFlowState,
+        private UserInfoService $userInfoService
     ) {
     }
 
@@ -54,7 +55,7 @@ class OtpFlowService
      */
     public function requestOtp(Request $request, string $rawPhone): OtpFlowResult
     {
-        $userInfo = $this->analyticsTracker->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
 
         // 1. Rate Limiting Check
         // Limit: 5 attempts per IP per minute
@@ -380,7 +381,7 @@ class OtpFlowService
      */
     private function attemptFallback(string $platform, string $subscriberId, Request $request, array $allFailedUrls): array
     {
-        $userInfo = $this->analyticsTracker->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $metaData = array_merge(['client' => 'WEBAPP', 'appCode' => $request->getUri()], $userInfo);
 
         $this->logger->notice(

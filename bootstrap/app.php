@@ -172,7 +172,8 @@ $container['OtpFlowService'] = function ($c) {
         $c['Logger'],
         $c['SessionService'],
         $c['RateLimiterService'],
-        $c['OtpFlowState']
+        $c['OtpFlowState'],
+        $c['UserInfoService']
     );
 };
 
@@ -221,7 +222,8 @@ $container['FormController'] = function ($c) {
         $c['Logger'],
         $c['SessionService'],
         $c['CsrfService'],
-        $c['OtpFlowState']
+        $c['OtpFlowState'],
+        $c['UserInfoService']
     );
 };
 
@@ -233,7 +235,8 @@ $container['OtpController'] = function ($c) {
         $c['Logger'],
         $c['SessionService'],
         $c['CsrfService'],
-        $c['OtpFlowState']
+        $c['OtpFlowState'],
+        $c['UserInfoService']
     );
 };
 

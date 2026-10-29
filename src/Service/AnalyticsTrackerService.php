@@ -25,14 +25,6 @@ class AnalyticsTrackerService
     }
 
     /**
-     * Retrieves normalized visitor and request device info.
-     */
-    public function getUserInfo(Request $request): array
-    {
-        return $this->userInfoService->get($request);
-    }
-
-    /**
      * Gets or generates the long-lived visitor ID.
      */
     public function getVisitorId(): string
@@ -66,7 +58,7 @@ class AnalyticsTrackerService
             return null;
         }
 
-        $userInfo = $this->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $this->logger->info("New page visit. {$pageRoute}", $userInfo);
 
         if ($logVisitToDb) {
@@ -143,7 +135,7 @@ class AnalyticsTrackerService
      */
     public function logVisitWithPhone(Request $request, PhoneNumber $phoneData): void
     {
-        $userInfo = $this->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $visitorId = $this->getVisitorId();
         $phoneCapi = $phoneData->capiFormat;
 
@@ -175,7 +167,7 @@ class AnalyticsTrackerService
         }
 
         $leadEventId = $leadId ?? ('lead-' . bin2hex(random_bytes(16)));
-        $userInfo = $this->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $visitorId = $this->getVisitorId();
         $phoneForMatching = $phoneData->capiFormat;
 
@@ -225,7 +217,7 @@ class AnalyticsTrackerService
             return null;
         }
 
-        $userInfo = $this->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $visitorId = $this->getVisitorId();
         $phoneForMatching = $phoneData->capiFormat;
 

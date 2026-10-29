@@ -11,6 +11,7 @@ use App\Service\CsrfService;
 use App\Service\OtpFlowService;
 use App\Service\OtpFlowState;
 use App\Service\SessionService;
+use App\Service\UserInfoService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -31,7 +32,8 @@ class OtpController extends BaseController
         private LoggerInterface $logger,
         protected SessionService $session,
         private CsrfService $csrfService,
-        private OtpFlowState $otpFlowState
+        private OtpFlowState $otpFlowState,
+        private UserInfoService $userInfoService
     ) {
     }
 
@@ -40,7 +42,7 @@ class OtpController extends BaseController
      */
     public function showOtpForm(Request $request): Response
     {
-        $userInfo = $this->analyticsTracker->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
 
         // Security Check: Ensure user has a token from the previous step.
         if (!$this->otpFlowState->inVerificationStep()) {

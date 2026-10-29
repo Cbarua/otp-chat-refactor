@@ -7,6 +7,7 @@ use App\DTO\OtpFlowResult;
 use App\Service\OtpFlowService;
 use App\Service\OtpFlowState;
 use App\Service\SessionService;
+use App\Service\UserInfoService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -26,7 +27,8 @@ class FormController extends BaseController
         private LoggerInterface $logger,
         protected SessionService $session,
         private CsrfService $csrfService,
-        private OtpFlowState $otpFlowState
+        private OtpFlowState $otpFlowState,
+        private UserInfoService $userInfoService
     ) {
     }
 
@@ -76,7 +78,7 @@ class FormController extends BaseController
      */
     public function handlePhoneForm(Request $request): Response
     {
-        $userInfo = $this->analyticsTracker->getUserInfo($request);
+        $userInfo = $this->userInfoService->get($request);
         $rawPhone = $request->request->get('mobile', '');
         $isAjax = $request->isXmlHttpRequest();
 

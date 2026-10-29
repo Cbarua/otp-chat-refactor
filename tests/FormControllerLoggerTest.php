@@ -118,7 +118,8 @@ class FormControllerLoggerTest extends TestCase
             $this->loggerMock,
             $this->sessionServiceMock,
             $this->csrfServiceMock,
-            new OtpFlowState($this->sessionServiceMock)
+            new OtpFlowState($this->sessionServiceMock),
+            $this->userInfoServiceMock
         );
     }
 

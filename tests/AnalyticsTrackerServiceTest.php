@@ -41,14 +41,10 @@ class AnalyticsTrackerServiceTest extends TestCase
         );
     }
 
-    public function testGetUserInfoAndVisitorId(): void
+    public function testGetVisitorId(): void
     {
-        $request = Request::create('http://localhost:8080/');
-        $this->userInfoServiceMock->method('get')->willReturn(['ip' => '127.0.0.1', 'useragent' => 'PHPUnit']);
         $this->sessionServiceMock->method('get')->with(SessionKey::VISITOR_ID)->willReturn('v_test123');
 
-        $info = $this->service->getUserInfo($request);
-        $this->assertEquals('127.0.0.1', $info['ip']);
         $this->assertEquals('v_test123', $this->service->getVisitorId());
     }
 

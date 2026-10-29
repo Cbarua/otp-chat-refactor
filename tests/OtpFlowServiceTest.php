@@ -29,6 +29,7 @@ use App\Service\OtpFlowService;
 use App\Service\OtpFlowState;
 use App\Service\RateLimiterService;
 use App\Service\SessionService;
+use App\Service\UserInfoService;
 use App\Utils\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -66,6 +67,7 @@ class OtpFlowServiceTest extends TestCase
     private MockObject|LoggerInterface $loggerMock;
     private SessionService $sessionService;
     private MockObject|RateLimiterService $rateLimiterMock;
+    private MockObject|UserInfoService $userInfoServiceMock;
 
     protected function setUp(): void
     {
@@ -82,7 +84,8 @@ class OtpFlowServiceTest extends TestCase
         $this->sessionService = new SessionService();
         $this->rateLimiterMock = $this->createMock(RateLimiterService::class);
 
-        $this->analyticsTrackerMock->method('getUserInfo')
+        $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
+        $this->userInfoServiceMock->method('get')
             ->willReturn(['ip' => '127.0.0.1', 'useragent' => 'TestAgent']);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
@@ -108,7 +111,8 @@ class OtpFlowServiceTest extends TestCase
             $this->loggerMock,
             $this->sessionService,
             $this->rateLimiterMock,
-            new OtpFlowState($this->sessionService)
+            new OtpFlowState($this->sessionService),
+            $this->userInfoServiceMock
         );
     }
 
