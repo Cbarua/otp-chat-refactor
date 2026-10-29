@@ -304,6 +304,12 @@ class OtpFlowService
 
         $appName = $this->getAppNamesFromUrls([$token['usedApiUrl'] ?? ''])[0] ?? '';
 
+        // The app stopped accepting attempts for this OTP: get a new one from another app.
+        if ($outcome === OtpVerifyOutcome::ATTEMPTS_EXHAUSTED) {
+            $this->logger->notice('OTP attempts exhausted, trying another app.', ['app' => $appName, 'response' => $response]);
+            return $this->handleFailedVerification($request, $token);
+        }
+
         // If SMS config is set, show sms link
         $smsNumber = $this->config['sms']['number'] ?? null;
         $smsKeyword = $this->config['sms']['keyword'] ?? null;

@@ -290,7 +290,7 @@ class OtpApiServiceTest extends TestCase
             'invalid' => [['status' => 'Invalid OTP', 'statusCode' => 'E1850', 'statusDetail' => 'Invalid OTP'], OtpVerifyOutcome::INVALID],
             'not found' => [['status' => 'Could not find OTP', 'statusCode' => 'E1854', 'statusDetail' => 'Could not find OTP'], OtpVerifyOutcome::NOT_FOUND],
             'expired' => [['status' => 'OTP request has being expired', 'statusCode' => 'E1851', 'statusDetail' => 'OTP request has being expired'], OtpVerifyOutcome::EXPIRED],
-            'attempts exhausted' => [['statusCode' => 'E1852', 'statusDetail' => 'Maximum number of OTP attempts had reached'], OtpVerifyOutcome::PROVIDER_ERROR],
+            'attempts exhausted' => [['statusCode' => 'E1852', 'statusDetail' => 'Maximum number of OTP attempts had reached'], OtpVerifyOutcome::ATTEMPTS_EXHAUSTED],
             'request limit code on verify' => [['statusCode' => 'E1853'], OtpVerifyOutcome::PROVIDER_ERROR],
             'middle-layer error' => [['status' => 'error', 'statusCode' => 'E500', 'statusDetail' => 'Internal Error'], OtpVerifyOutcome::PROVIDER_ERROR],
             'success status without a code' => [['status' => 'success', 'subscriptionStatus' => 'REGISTERED'], OtpVerifyOutcome::PROVIDER_ERROR],

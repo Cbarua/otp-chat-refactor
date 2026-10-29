@@ -717,6 +717,34 @@ class OtpFlowServiceTest extends TestCase
         $this->assertEquals('otp', $result->redirectUrl);
     }
 
+    public function testProcessVerificationAttemptsExhaustedFallsBackWithoutCriticalLog(): void
+    {
+        $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+        $_SESSION[SessionKey::PHONE_DATA->value] = self::SAME_PHONE;
+
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::ATTEMPTS_EXHAUSTED]);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', self::TELCO_PHONE, $this->anything(), [self::PRIMARY_API_URL])
+            ->willReturn([
+                'outcome' => OtpRequestOutcome::SENT,
+                'verificationToken' => new OtpVerificationToken('refFallback', self::FALLBACK_API_URL, 'ideamart', time())
+            ]);
+        $this->loggerMock->expects($this->never())->method('critical');
+        $notices = [];
+        $this->loggerMock->method('notice')->willReturnCallback(function (string $message) use (&$notices): void {
+            $notices[] = $message;
+        });
+
+        $result = $this->service->processVerification(new Request(), '123456');
+
+        $this->assertContains('OTP attempts exhausted, trying another app.', $notices);
+        $this->assertSame(OtpFlowService::ERROR_OTP_NEW, $result->message);
+        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('refFallback', $_SESSION[SessionKey::OTP_TOKEN->value]->referenceNo);
+    }
+
     public function testProcessVerificationFallbackMissingDataRedirectsHome(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time());

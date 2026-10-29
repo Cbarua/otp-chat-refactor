@@ -15,5 +15,6 @@ enum OtpVerifyOutcome: string
     case INVALID = 'invalid';
     case NOT_FOUND = 'not_found';
     case EXPIRED = 'expired';
+    case ATTEMPTS_EXHAUSTED = 'attempts_exhausted';
     case PROVIDER_ERROR = 'provider_error';
 }

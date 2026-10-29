@@ -134,7 +134,8 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   **`NOT_FOUND` (E1854)**:
         *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and returns SMS fallback link.
         *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
-    *   **`PROVIDER_ERROR` (any other code, e.g. E1852 attempts exhausted, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
+    *   **`ATTEMPTS_EXHAUSTED` (E1852)**: logs a notice and runs `handleFailedVerification()`, an app fallback to the next app that has not failed.
+    *   **`PROVIDER_ERROR` (any other code, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
 
 ---
 

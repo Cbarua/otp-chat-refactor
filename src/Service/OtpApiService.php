@@ -190,6 +190,7 @@ class OtpApiService
                 : OtpVerifyOutcome::NOT_SUBSCRIBED,
             'E1850' => OtpVerifyOutcome::INVALID,
             'E1851' => OtpVerifyOutcome::EXPIRED,
+            'E1852' => OtpVerifyOutcome::ATTEMPTS_EXHAUSTED,
             'E1854' => OtpVerifyOutcome::NOT_FOUND,
             default => OtpVerifyOutcome::PROVIDER_ERROR,
         };
