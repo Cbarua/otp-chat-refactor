@@ -23,6 +23,7 @@ use Pimple\Container;
 use App\Controller\FormController;
 use App\Controller\OtpController;
 use App\Controller\ThankYouController;
+use App\Enum\SessionKey;
 use App\Service\OtpApiService;
 use App\Service\SessionService;
 use App\Service\SimpleUserLoggerService;
@@ -173,9 +174,9 @@ $container['OtpFlowService'] = function ($c) {
 /** @var \App\Service\SessionService $session */
 $session = $container['SessionService'];
 $visitorId = null;
-if ($session->has('visitor_id')) {
+if ($session->has(SessionKey::VISITOR_ID)) {
     // Priority 1: Trust the server-side session first.
-    $visitorId = $session->get('visitor_id');
+    $visitorId = $session->get(SessionKey::VISITOR_ID);
 } elseif (isset($_COOKIE['visitor_id'])) {
     // Priority 2: Trust the long-term cookie.
     $visitorId = $_COOKIE['visitor_id'];
@@ -200,7 +201,7 @@ if ($session->has('visitor_id')) {
     );
 }
 // Store in session for easy access during this single request
-$session->set('visitor_id', $visitorId);
+$session->set(SessionKey::VISITOR_ID, $visitorId);
 
 
 // 7. Register Controllers

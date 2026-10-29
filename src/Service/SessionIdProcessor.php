@@ -3,6 +3,7 @@
 
 namespace App\Service;
 
+use App\Enum\SessionKey;
 use Monolog\LogRecord;
 use Monolog\Processor\ProcessorInterface;
 
@@ -26,8 +27,8 @@ class SessionIdProcessor implements ProcessorInterface
      */
     public function __invoke(LogRecord $record): LogRecord
     {
-        if ($this->sessionService->has('visitor_id')) {
-            $record->extra['visitor_id'] = $this->sessionService->get('visitor_id');
+        if ($this->sessionService->has(SessionKey::VISITOR_ID)) {
+            $record->extra['visitor_id'] = $this->sessionService->get(SessionKey::VISITOR_ID);
         }
         return $record;
     }

@@ -19,16 +19,6 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class OtpController extends BaseController
 {
-    // Session Keys (Preserved for backward compatibility)
-    public const SESSION_OTP_TOKEN = SessionKey::OTP_TOKEN->value;
-    public const SESSION_PHONE_DATA = SessionKey::PHONE_DATA->value;
-    public const SESSION_ERROR = SessionKey::ERROR_MESSAGE->value;
-    public const SESSION_PAGE_VIEW_ID = SessionKey::PAGE_VIEW_ID_OTP->value;
-    public const SESSION_REG_ID = SessionKey::REG_ID->value;
-    public const SESSION_LEAD_ID = SessionKey::LEAD_ID->value;
-    public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
-    public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
-
     // Error Messages
     private const ERROR_CSRF = OtpFlowService::ERROR_CSRF;
     private const ERROR_SESSION_EXPIRED = 'Session expired. Please try again.';

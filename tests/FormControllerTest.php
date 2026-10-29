@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use App\Enum\SessionKey;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\FormController;
 use App\DTO\OtpFlowResult;
@@ -108,7 +109,7 @@ class FormControllerTest extends TestCase
             unset($this->sessionData[$k]);
         });
 
-        $this->sessionData[FormController::SESSION_VISITOR_ID] = 'v_test123';
+        $this->sessionData[SessionKey::VISITOR_ID->value] = 'v_test123';
 
         $this->analyticsTracker = new AnalyticsTrackerService(
             $this->config,
@@ -160,7 +161,7 @@ class FormControllerTest extends TestCase
         $this->controller->showPhoneForm($request);
 
         $this->assertEquals('phone_form', $this->controller->renderedView);
-        $this->assertArrayHasKey(FormController::SESSION_PAGE_VIEW_ID, $this->sessionData);
+        $this->assertArrayHasKey(SessionKey::PAGE_VIEW_ID->value, $this->sessionData);
         $this->assertNull($this->controller->renderData['errorMessage']);
         $this->assertNull($this->controller->renderData['alreadyRegistered']);
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
@@ -169,7 +170,7 @@ class FormControllerTest extends TestCase
     public function testShowPhoneFormWithExistingPhoneDataPassesCountryToCapi(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[FormController::SESSION_PHONE_DATA] = ['capi_format' => '94771234567'];
+        $this->sessionData[SessionKey::PHONE_DATA->value] = ['capi_format' => '94771234567'];
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->once())
@@ -218,14 +219,14 @@ class FormControllerTest extends TestCase
         $this->controller->showPhoneForm($request);
 
         // Verify it's stored in session
-        $this->assertArrayHasKey(FormController::SESSION_FBC, $this->sessionData);
-        $this->assertStringContainsString('test_fbclid_val', $this->sessionData[FormController::SESSION_FBC]);
+        $this->assertArrayHasKey(SessionKey::FBC->value, $this->sessionData);
+        $this->assertStringContainsString('test_fbclid_val', $this->sessionData[SessionKey::FBC->value]);
     }
 
     public function testShowPhoneFormWithErrorRedirect(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[FormController::SESSION_ERROR] = 'Invalid phone number. Example: 0771234567';
+        $this->sessionData[SessionKey::ERROR_MESSAGE->value] = 'Invalid phone number. Example: 0771234567';
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
@@ -236,13 +237,13 @@ class FormControllerTest extends TestCase
         $this->assertEquals('phone_form', $this->controller->renderedView);
         $this->assertEquals('Invalid phone number. Example: 0771234567', $this->controller->renderData['errorMessage']);
         $this->assertNull($this->controller->renderData['alreadyRegistered']);
-        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
     }
 
     public function testShowPhoneFormWithAlreadyRegisteredRedirect(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'You are registered';
+        $this->sessionData[SessionKey::ALREADY_REGISTERED->value] = 'You are registered';
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->once())->method('sendEvent');
@@ -253,20 +254,20 @@ class FormControllerTest extends TestCase
         $this->assertEquals('phone_form', $this->controller->renderedView);
         $this->assertNull($this->controller->renderData['errorMessage']);
         $this->assertEquals('You are registered', $this->controller->renderData['alreadyRegistered']);
-        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $this->sessionData);
     }
 
     public function testShowPhoneFormClearsSmsFallbackSession(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[FormController::SESSION_SHOW_SMS_LINK] = true;
+        $this->sessionData[SessionKey::SHOW_SMS_LINK->value] = true;
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
 
         $this->controller->showPhoneForm($request);
 
-        $this->assertArrayNotHasKey(FormController::SESSION_SHOW_SMS_LINK, $this->sessionData);
-        $this->assertArrayNotHasKey(FormController::SESSION_INVALID_OTP_COUNT, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $this->sessionData);
     }
 
     public function testShowPhoneFormCapiServiceNull(): void
@@ -307,7 +308,7 @@ class FormControllerTest extends TestCase
         $this->controller->handlePhoneForm($request);
 
         $this->assertEquals('./', $this->controller->redirectUrl);
-        $this->assertEquals('Security check failed. Please try again.', $this->sessionData[FormController::SESSION_ERROR]);
+        $this->assertEquals('Security check failed. Please try again.', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
     }
 
     public function testHandlePhoneFormAjaxCsrfFailure(): void
@@ -326,7 +327,7 @@ class FormControllerTest extends TestCase
         $this->assertEquals('error', $data['status']);
         $this->assertEquals('Security check failed. Please try again.', $data['message']);
         $this->assertSame('./', $data['redirect']);
-        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlFlashesServiceErrorAndStays(): void
@@ -343,8 +344,8 @@ class FormControllerTest extends TestCase
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
         $this->assertEquals('./', $this->controller->redirectUrl);
-        $this->assertSame('some message', $this->sessionData[FormController::SESSION_ERROR]);
-        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+        $this->assertSame('some message', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlFlashesAlreadyRegisteredUnderItsOwnKey(): void
@@ -359,8 +360,8 @@ class FormControllerTest extends TestCase
         $this->controller->handlePhoneForm($request);
 
         $this->assertEquals('./', $this->controller->redirectUrl);
-        $this->assertSame('You are already registered!', $this->sessionData[FormController::SESSION_ALREADY_REGISTERED]);
-        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+        $this->assertSame('You are already registered!', $this->sessionData[SessionKey::ALREADY_REGISTERED->value]);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlSmsFallbackWritesNoFlash(): void
@@ -376,7 +377,7 @@ class FormControllerTest extends TestCase
 
         // otp_form.php hides the SMS link while an error message is set.
         $this->assertEquals('otp', $this->controller->redirectUrl);
-        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlRedirectsToServiceSuccessUrl(): void
@@ -401,8 +402,8 @@ class FormControllerTest extends TestCase
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
 
         // Stale flash messages from an earlier HTML round trip must not leak into the next page render.
-        $this->sessionData[FormController::SESSION_ERROR] = 'stale error';
-        $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'stale already registered';
+        $this->sessionData[SessionKey::ERROR_MESSAGE->value] = 'stale error';
+        $this->sessionData[SessionKey::ALREADY_REGISTERED->value] = 'stale already registered';
 
         $result = OtpFlowResult::smsFallback('Temporary system error');
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
@@ -416,8 +417,8 @@ class FormControllerTest extends TestCase
         $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertSame($result->toArray(), json_decode($response->getContent(), true));
-        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
-        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
+        $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $this->sessionData);
     }
 
     public function testHandlePhoneFormAjaxSuccess(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use App\Enum\SessionKey;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\FormController;
 use App\DTO\OtpFlowResult;
@@ -98,7 +99,7 @@ class FormControllerLoggerTest extends TestCase
             unset($this->sessionData[$k]);
         });
 
-        $this->sessionData[FormController::SESSION_VISITOR_ID] = 'v_test123';
+        $this->sessionData[SessionKey::VISITOR_ID->value] = 'v_test123';
 
         $this->analyticsTracker = new AnalyticsTrackerService(
             $this->config,
@@ -146,7 +147,7 @@ class FormControllerLoggerTest extends TestCase
     public function testLogsNoticeWhenSkippingPageViewDueToSessionError(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[FormController::SESSION_ERROR] = 'Invalid phone number';
+        $this->sessionData[SessionKey::ERROR_MESSAGE->value] = 'Invalid phone number';
         $this->csrfServiceMock->method('getToken')->willReturn('csrf-token-123');
 
         $this->loggerMock->expects($this->once())
