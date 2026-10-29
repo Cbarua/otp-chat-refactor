@@ -29,6 +29,7 @@ class OtpFlowService
     public const OTP_NOT_FOUND = 'Could not find OTP';
     public const OTP_STATUS_EXPIRED = 'OTP request has being expired';
     public const SUB_STATUS_PENDING = 'INITIAL CHARGING PENDING';
+    public const SUB_STATUS_PENDING_MSPACE = 'INITIAL_CHARGING_PENDING'; // mspace spells it with underscores
     public const SUB_STATUS_REGISTERED = 'REGISTERED';
 
     // Error Messages
@@ -43,9 +44,6 @@ class OtpFlowService
     public const ERROR_OTP_NEW = 'Please try again with the new OTP sent to your phone.';
     public const ERROR_OTP_EXPIRED = 'Your OTP expired. A new OTP has been sent to your phone.';
     public const ERROR_GENERIC = 'An error occurred. Please try again later.';
-
-    // Platforms
-    public const PLATFORM_MSPACE = 'mspace';
 
     public function __construct(
         private array $config,
@@ -375,20 +373,13 @@ class OtpFlowService
      */
     private function handleSuccessfulVerification(array $response, ?string $platform): OtpFlowResult
     {
-        if (!$platform) {
-            $this->logger->critical('Could not determine platform for successful verification.');
-            $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_REGISTRATION_FAILED);
-            return OtpFlowResult::error(self::ERROR_REGISTRATION_FAILED, './', false, './');
-        }
-
         $isSubscribed = \in_array(
             $response['subscriptionStatus'] ?? null,
-            [self::SUB_STATUS_REGISTERED, self::SUB_STATUS_PENDING],
+            [self::SUB_STATUS_REGISTERED, self::SUB_STATUS_PENDING, self::SUB_STATUS_PENDING_MSPACE],
             true
         );
 
-        // mspace platform has a pass because of legacy code
-        if ($isSubscribed || $platform === self::PLATFORM_MSPACE) {
+        if ($isSubscribed) {
             $regId = $this->generateRandomId('reg-');
             $this->session->set(SessionKey::REG_ID, $regId);
             $this->session->unset(SessionKey::INVALID_OTP_COUNT);

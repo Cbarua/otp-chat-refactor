@@ -1,6 +1,6 @@
 # Registration & OTP Flow Documentation
 
-**Last Updated:** October 26, 2026
+**Last Updated:** October 29, 2026
 
 This document details the visitor registration flow within the application, analyzing the interaction between Controllers, Services, Session state, Facebook CAPI events, and External Telco APIs. Domain terms (OTP flow, app, app fallback, token reuse, token renewal, SMS fallback, platform, carrier, visitor) are defined in `GLOSSARY.md`.
 
@@ -120,7 +120,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **API Verification**: Calls `OtpApiInterface::verifyOtp($token, $rawOtp)`.
 *   **Outcome Handling (`handleVerificationResponse`)**:
     *   **Success (`OTP_SUCCESS`)**:
-        *   Checks subscription status (`REGISTERED`, `INITIAL CHARGING PENDING`, or `mspace` legacy bypass).
+        *   Checks subscription status (`REGISTERED`, `INITIAL CHARGING PENDING`, or mspace's `INITIAL_CHARGING_PENDING`; any other status logs CRITICAL "Registration failed. Unexpected Subscription Status" and stays on `/otp`).
         *   Generates `SESSION_REG_ID` (`reg-xxxx`).
         *   Clears `SESSION_INVALID_OTP_COUNT` and `SESSION_SHOW_SMS_LINK`.
         *   Redirects to `/thanks` or returns `{"status": "success", "redirect": "thanks"}`.

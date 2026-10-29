@@ -40,9 +40,6 @@ class OtpController extends BaseController
     // Error Messages
     private const ERROR_CSRF = OtpFlowService::ERROR_CSRF;
 
-    // Platforms
-    public const PLATFORM_MSPACE = OtpFlowService::PLATFORM_MSPACE;
-
     public function __construct(
         private array $config,
         private OtpFlowService $otpFlowService,

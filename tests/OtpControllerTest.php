@@ -682,25 +682,6 @@ class OtpControllerTest extends TestCase
 
     /**************************************************************************************************************** */
 
-    public function testHandleSuccessfulVerificationMissingPlatform(): void
-    {
-        // Setup session with NO platform info
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123']; // No platform here
-        $this->sessionData[OtpController::SESSION_PHONE_DATA] = []; // No platform here
-
-        $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
-
-        $this->csrfServiceMock->method('validate')->willReturn(true);
-        $this->rateLimiterMock->method('check')->willReturn(true);
-
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success']);
-
-        $this->controller->handleOtpForm($request);
-
-        $this->assertEquals('./', $this->controller->redirectUrl);
-        $this->assertEquals('Registration failed. Please try again.', $this->sessionData[OtpController::SESSION_ERROR]);
-    }
-
     public function testHandleOtpFormVerificationSuccessNotSubscribed(): void
     {
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref-123', 'platform' => 'ideamart'];
@@ -953,24 +934,6 @@ class OtpControllerTest extends TestCase
         $data = json_decode($response->getContent(), true);
         $this->assertEquals('error', $data['status']);
         $this->assertEquals('Registration failed. Please try again.', $data['message']);
-    }
-
-    public function testHandleOtpFormAjaxMissingPlatform(): void
-    {
-        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
-        $this->csrfServiceMock->method('validate')->willReturn(true);
-        $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success']);
-
-        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
-        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
-
-        $response = $this->controller->handleOtpForm($request);
-
-        $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
-        $data = json_decode($response->getContent(), true);
-        $this->assertEquals('error', $data['status']);
-        $this->assertEquals('./', $data['redirect']);
     }
 
     public function testHandleOtpFormAjaxVerificationFailsInvalidOtpWithSmsConfig(): void

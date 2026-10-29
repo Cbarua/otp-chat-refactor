@@ -566,7 +566,27 @@ class OtpFlowServiceTest extends TestCase
         $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
     }
 
-    public function testProcessVerificationSuccessMspacePlatform(): void
+    public function testProcessVerificationMspaceUnderscorePendingRegisters(): void
+    {
+        $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'mspace', time());
+        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
+
+        $this->otpServiceMock->expects($this->once())
+            ->method('verifyOtp')
+            ->willReturn([
+                'status' => ApiStatus::SUCCESS->value,
+                'subscriptionStatus' => 'INITIAL_CHARGING_PENDING'
+            ]);
+
+        $request = new Request();
+        $result = $this->service->processVerification($request, '123456');
+
+        $this->assertTrue($result->isSuccess());
+        $this->assertEquals('thanks', $result->redirectUrl);
+        $this->assertArrayHasKey(SessionKey::REG_ID->value, $_SESSION);
+    }
+
+    public function testProcessVerificationMspaceWithoutSubscriptionFails(): void
     {
         $token = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'mspace', time());
         $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
@@ -581,26 +601,10 @@ class OtpFlowServiceTest extends TestCase
         $request = new Request();
         $result = $this->service->processVerification($request, '123456');
 
-        $this->assertTrue($result->isSuccess());
-        $this->assertEquals('thanks', $result->redirectUrl);
-        $this->assertArrayHasKey(SessionKey::REG_ID->value, $_SESSION);
-    }
-
-    public function testProcessVerificationMissingPlatformReturnsError(): void
-    {
-        $token = ['referenceNo' => 'ref123', 'usedApiUrl' => self::PRIMARY_API_URL]; // no platform
-        $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
-
-        $this->otpServiceMock->expects($this->once())
-            ->method('verifyOtp')
-            ->willReturn(['status' => ApiStatus::SUCCESS->value]);
-
-        $request = new Request();
-        $result = $this->service->processVerification($request, '123456');
-
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_REGISTRATION_FAILED, $result->message);
-        $this->assertEquals('./', $result->redirectUrl);
+        $this->assertEquals('otp', $result->redirectUrl);
+        $this->assertArrayNotHasKey(SessionKey::REG_ID->value, $_SESSION);
     }
 
     public function testProcessVerificationUnexpectedSubscriptionStatus(): void
