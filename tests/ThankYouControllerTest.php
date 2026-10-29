@@ -6,6 +6,8 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SessionFixtures;
+use App\Service\OtpFlowState;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\ThankYouController;
 use App\Service\FacebookCapiService;
@@ -42,6 +44,8 @@ class TestableThankYouController extends ThankYouController
 #[CoversClass(ThankYouController::class)]
 class ThankYouControllerTest extends TestCase
 {
+    use SessionFixtures;
+
     private TestableThankYouController $controller;
     private array $config;
     private MockObject|FacebookCapiService|null $capiServiceMock;
@@ -100,7 +104,8 @@ class ThankYouControllerTest extends TestCase
             $this->config,
             $this->analyticsTracker,
             $this->loggerMock,
-            $this->sessionServiceMock
+            $this->sessionServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
     }
 
@@ -121,7 +126,7 @@ class ThankYouControllerTest extends TestCase
     {
         $this->sessionData = [
             'reg_id' => 'reg-test-12345',
-            'phone_data' => ['platform' => 'ideamart', 'capi_format' => '94771234567', 'value' => 5.0],
+            'phone_data' => self::phone(platform: 'ideamart', capiFormat: '94771234567', value: 5.0),
             'otp_token' => 'otp-xyz',
             'lead_id' => 'lead-abc',
             'visitor_id' => 'v_test123',

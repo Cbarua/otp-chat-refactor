@@ -46,7 +46,7 @@ description: Coding standards and architecture guidelines for the OTP Chat Refac
   - Use the injected Guzzle HTTP client (`$container['GuzzleClient']`) with configured connection and request timeouts (e.g., 10s connect, 30s total).
   - External API calls (Ideamart, Mspace, bdapps, Facebook CAPI) must have robust fallback, retry, and error logging mechanisms.
 - **Session Management**:
-  - Access and manipulate session state exclusively via `SessionService` rather than accessing `$_SESSION` directly.
+  - Access and manipulate session state exclusively via `SessionService` rather than accessing `$_SESSION` directly; the OTP flow's keys go through `OtpFlowState`, except `AnalyticsTrackerService`'s fallback read of `phone_data` for a PageView without a phone.
 
 ## 5. Security & Data Integrity
 

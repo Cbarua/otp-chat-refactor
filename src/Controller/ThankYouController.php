@@ -3,6 +3,7 @@
 
 namespace App\Controller;
 
+use App\Service\OtpFlowState;
 use App\Service\SessionService;
 use App\Service\AnalyticsTrackerService;
 use Psr\Log\LoggerInterface;
@@ -16,7 +17,8 @@ class ThankYouController extends BaseController
         private array $config,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
-        protected SessionService $session
+        protected SessionService $session,
+        private OtpFlowState $otpFlowState
     ) {
     }
 
@@ -26,12 +28,12 @@ class ThankYouController extends BaseController
     public function showThankYouPage(Request $request): Response
     {
         // 1. Security Check: Ensure user completed OTP
-        if (!$this->session->has(SessionKey::REG_ID) || !$this->session->has(SessionKey::PHONE_DATA)) {
+        $regId = $this->otpFlowState->regId();
+        $phone = $this->otpFlowState->phone();
+        if ($regId === null || $phone === null) {
             return $this->redirect('./');
         }
 
-        $regId = $this->session->get(SessionKey::REG_ID);
-        $phoneData = $this->session->get(SessionKey::PHONE_DATA, []);
         $customData = null;
 
         $pageViewEventId = $this->analyticsTracker->trackPageView(
@@ -45,11 +47,11 @@ class ThankYouController extends BaseController
         );
 
         // Fire "CompleteRegistration" CAPI Event
-        if (!empty($regId) && !empty($phoneData['capi_format'])) {
-            $this->analyticsTracker->trackCompleteRegistration($request, $phoneData, $regId);
+        if ($phone->capiFormat !== '') {
+            $this->analyticsTracker->trackCompleteRegistration($request, $phone, $regId);
             $customData = [
                 'currency' => 'USD',
-                'value' => (string) ($phoneData['value'] ?? '0.01')
+                'value' => (string) $phone->value
             ];
         }
 
@@ -61,21 +63,18 @@ class ThankYouController extends BaseController
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'pageViewEventId' => $pageViewEventId,
             'regId' => $regId,
-            'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'phoneCapi' => $phone->capiFormat,
             'externalId' => $this->session->get(SessionKey::VISITOR_ID),
             'country' => 'lk',
             'eventData' => ($customData !== null) ? json_encode($customData) : null,
             'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
         ];
 
-        $otpToken = $this->session->get(SessionKey::OTP_TOKEN);
-        $usedUrl = (is_array($otpToken) || $otpToken instanceof \ArrayAccess) ? ($otpToken['usedApiUrl'] ?? 'unknown') : 'unknown';
+        $usedUrl = $this->otpFlowState->token()?->usedApiUrl ?? 'unknown';
         $this->logger->info('Thank You page reached. Conversion successful.', ['app' => $this->getAppNamesFromUrls([$usedUrl])[0]]);
 
-        // 6. Clear session to prevent re-firing
-        $this->session->unset(SessionKey::REG_ID);
-        $this->session->unset(SessionKey::OTP_TOKEN);
-        // We keep 'phone_data' just in case, but clear sensitive IDs
+        // 6. Clear the reg id and token to prevent re-firing
+        $this->otpFlowState->finish();
 
         // 7. Render the view
         return $this->render('thanks', $data);

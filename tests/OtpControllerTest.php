@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SessionFixtures;
+use App\Service\OtpFlowState;
 use App\Enum\SessionKey;
 use App\Controller\OtpController;
 use App\Enum\OtpRequestOutcome;
@@ -48,6 +50,8 @@ class TestableOtpController extends OtpController
 #[CoversClass(OtpController::class)]
 class OtpControllerTest extends TestCase
 {
+    use SessionFixtures;
+
     private TestableOtpController $controller;
     private array $config;
     private MockObject|OtpApiService $otpServiceMock;
@@ -124,7 +128,8 @@ class OtpControllerTest extends TestCase
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $this->controller = new TestableOtpController(
@@ -133,7 +138,8 @@ class OtpControllerTest extends TestCase
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
     }
 
@@ -154,9 +160,9 @@ class OtpControllerTest extends TestCase
     public function testShowOtpFormFiresPageViewAndLeadEvents(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
             SessionKey::LEAD_ID->value => 'lead-abc-999',
-            SessionKey::PHONE_DATA->value => ['capi_format' => '94771234567'],
+            SessionKey::PHONE_DATA->value => self::phone(capiFormat: '94771234567'),
             'visitor_id' => 'v_test123',
             'fbp' => 'fb.1.test_fbp',
             'fbc' => 'fb.1.test_fbc'
@@ -211,7 +217,8 @@ class OtpControllerTest extends TestCase
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $controller = new TestableOtpController(
@@ -220,14 +227,15 @@ class OtpControllerTest extends TestCase
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $request = Request::createFromGlobals();
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref-123'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref-123');
         // set in FormController
         $this->sessionData[SessionKey::LEAD_ID->value] = 'lead-123';
-        $this->sessionData[SessionKey::PHONE_DATA->value] = ['capi_format' => '94771234567'];
+        $this->sessionData[SessionKey::PHONE_DATA->value] = self::phone(capiFormat: '94771234567');
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('token');
 
@@ -266,7 +274,8 @@ class OtpControllerTest extends TestCase
 
     public function testValidateOtpRequestInvalidTokenStructure(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = 'invalid-token-string';
+        // SMS fallback entered at the request step stores true instead of a token.
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = true;
         $this->csrfServiceMock->method('validate')->willReturn(true);
 
         $request = new Request([], ['csrf_token' => 'valid']);
@@ -278,8 +287,8 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormRateLimitExceededTriggersFallbackSuccess(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
-            SessionKey::PHONE_DATA->value => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref-123', platform: 'ideamart', usedApiUrl: 'url1'),
+            SessionKey::PHONE_DATA->value => self::phone(platform: 'ideamart', telcoFormat: 'tel:123')
         ];
         $request = new Request([], ['csrf_token' => 'valid-token']);
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
@@ -291,7 +300,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url1'])
-            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => ['referenceNo' => 'new-ref'], 'usedApiUrl' => 'url2']);
+            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => self::token(referenceNo: 'new-ref'), 'usedApiUrl' => 'url2']);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -306,8 +315,8 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormRateLimitExceededFallbackFails(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
-            SessionKey::PHONE_DATA->value => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref-123', platform: 'ideamart', usedApiUrl: 'url1'),
+            SessionKey::PHONE_DATA->value => self::phone(platform: 'ideamart', telcoFormat: 'tel:123')
         ];
         $request = new Request([], ['csrf_token' => 'valid-token']);
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
@@ -330,7 +339,7 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormInvalidOtpFormat(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
         ];
         $request = new Request([], ['otp' => '123', 'csrf_token' => 'valid-token']);
 
@@ -350,7 +359,7 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationFailsInvalidOtp(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
         ];
         $request = new Request([], ['otp' => '654321', 'csrf_token' => 'valid-token']);
 
@@ -370,17 +379,17 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationExpiredTriggersRenew(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'expired-ref',
-                'platform' => 'ideamart',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'platform' => 'ideamart',
-                'telco_format' => 'tel:123',
-                'capi_format' => '94771234567'
-            ],
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'expired-ref',
+                platform: 'ideamart',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                platform: 'ideamart',
+                telcoFormat: 'tel:123',
+                capiFormat: '94771234567'
+            ),
             SessionKey::INVALID_OTP_COUNT->value => 1,
             SessionKey::SHOW_SMS_LINK->value => false
         ];
@@ -401,11 +410,11 @@ class OtpControllerTest extends TestCase
             ->with('ideamart', 'tel:123', $this->anything(), [])
             ->willReturn([
                 'outcome' => OtpRequestOutcome::SENT,
-                'verificationToken' => [
-                    'referenceNo' => 'new-ref-123',
-                    'usedApiUrl' => 'url1',
-                    'createdAt' => '2023-10-10 10:00:00'
-                ]
+                'verificationToken' => self::token(
+                    referenceNo: 'new-ref-123',
+                    usedApiUrl: 'url1',
+                    createdAt: strtotime('2023-10-10 10:00:00')
+                )
             ]);
 
         $this->controller->handleOtpForm($request);
@@ -424,13 +433,13 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormVerificationExpiredTriggersRenewMissingDataFails(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = [
-            'referenceNo' => 'ref',
-            'usedApiUrl' => 'url1',
-            'createdAt' => time(),
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(
+            referenceNo: 'ref',
+            usedApiUrl: 'url1',
+            createdAt: time(),
             // Missing platform
-            'platform' => null,
-        ];
+            platform: '',
+        );
         // Missing phone data
         $this->sessionData[SessionKey::PHONE_DATA->value] = [];
 
@@ -447,17 +456,17 @@ class OtpControllerTest extends TestCase
     public function testHandleExpiredTokenRenewFails(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'expired-ref',
-                'platform' => 'ideamart',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'expired-ref',
+                platform: 'ideamart',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
@@ -475,28 +484,28 @@ class OtpControllerTest extends TestCase
     public function testHandleExpiredTokenRenewFallbackUrl(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'expired-ref',
-                'platform' => 'ideamart',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'expired-ref',
+                platform: 'ideamart',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
         $this->otpServiceMock->method('getOtp')->willReturn([
             'outcome' => OtpRequestOutcome::SENT,
-            'verificationToken' => [
-                'referenceNo' => 'new-ref-fallback',
-                'usedApiUrl' => 'url2',
-                'createdAt' => time()
-            ]
+            'verificationToken' => self::token(
+                referenceNo: 'new-ref-fallback',
+                usedApiUrl: 'url2',
+                createdAt: time()
+            )
         ]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
@@ -507,7 +516,7 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationFailsInvalidOtpIncrementsCountWhenSmsLinkIsSetup(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
             SessionKey::INVALID_OTP_COUNT->value => 1,
             // Shouldn't be possible, but if it is, it should be reset
             SessionKey::SHOW_SMS_LINK->value => true,
@@ -529,7 +538,7 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationFailsInvalidOtpShowsSmsLinkAfterThreeAttempts(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
             SessionKey::INVALID_OTP_COUNT->value => 2
         ];
         $request = new Request([], ['otp' => '654321', 'csrf_token' => 'valid-token']);
@@ -549,7 +558,7 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationFailsOtpNotFoundShowsSmsLink(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
         ];
         $request = new Request([], ['otp' => '654321', 'csrf_token' => 'valid-token']);
 
@@ -585,7 +594,8 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $controller = new TestableOtpController(
@@ -594,10 +604,11 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', usedApiUrl: 'url1');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
@@ -634,7 +645,8 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $controller = new TestableOtpController(
@@ -643,21 +655,22 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'ref-123',
-                'usedApiUrl' => self::PRIMARY_API_URL,
-                'createdAt' => time(),
-                'platform' => 'ideamart'
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'ref-123',
+                usedApiUrl: self::PRIMARY_API_URL,
+                createdAt: time(),
+                platform: 'ideamart'
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
 
         $this->csrfServiceMock->method('validate')->willReturn(true);
@@ -666,11 +679,11 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
         $this->otpServiceMock->method('getOtp')->willReturn([
             'outcome' => OtpRequestOutcome::SENT,
-            'verificationToken' => [
-                'referenceNo' => 'new-ref-456',
-                'usedApiUrl' => self::PRIMARY_API_URL,
-                'createdAt' => time()
-            ]
+            'verificationToken' => self::token(
+                referenceNo: 'new-ref-456',
+                usedApiUrl: self::PRIMARY_API_URL,
+                createdAt: time()
+            )
         ]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
@@ -686,8 +699,8 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormVerificationSuccessNotSubscribed(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref-123', 'platform' => 'ideamart'];
-        $this->sessionData[SessionKey::PHONE_DATA->value] = ['platform' => 'ideamart'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref-123', platform: 'ideamart');
+        $this->sessionData[SessionKey::PHONE_DATA->value] = self::phone(platform: 'ideamart');
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
 
@@ -706,8 +719,8 @@ class OtpControllerTest extends TestCase
     public function testHandleOtpFormVerificationSuccessAndSubscribed(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'],
-            SessionKey::PHONE_DATA->value => ['platform' => 'ideamart'],
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123', platform: 'ideamart'),
+            SessionKey::PHONE_DATA->value => self::phone(platform: 'ideamart'),
             SessionKey::INVALID_OTP_COUNT->value => 2,
             // Shouldn't be possible to reach here with invalid count > 2, but if it is, it should be reset
             SessionKey::SHOW_SMS_LINK->value => true
@@ -719,7 +732,7 @@ class OtpControllerTest extends TestCase
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
-            ->with(['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'], '123456')
+            ->with(self::token(referenceNo: 'test-ref-123', platform: 'ideamart'), '123456')
             ->willReturn(['outcome' => OtpVerifyOutcome::VERIFIED]);
 
         $this->controller->handleOtpForm($request);
@@ -736,7 +749,7 @@ class OtpControllerTest extends TestCase
     public function testHandleFailedVerificationMissingData(): void
     {
         // Setup session with missing data for fallback
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref-123']; // Missing usedApiUrl/platform
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref-123'); // Missing usedApiUrl/platform
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
 
@@ -754,8 +767,8 @@ class OtpControllerTest extends TestCase
     public function testHandleFailedVerificationFallbackSuccess(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url2', 'failedUrls' => ['url0', 'url1']],
-            SessionKey::PHONE_DATA->value => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref-123', platform: 'ideamart', usedApiUrl: 'url2', failedUrls: ['url0', 'url1']),
+            SessionKey::PHONE_DATA->value => self::phone(platform: 'ideamart', telcoFormat: 'tel:123')
         ];
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
@@ -770,7 +783,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url0', 'url1', 'url2'])
-            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
+            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => self::token(referenceNo: 'new-ref', usedApiUrl: 'url3')]);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -791,8 +804,8 @@ class OtpControllerTest extends TestCase
     public function testHandleFailedVerificationFallbackFails(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref-123', 'platform' => 'ideamart', 'usedApiUrl' => 'url1'],
-            SessionKey::PHONE_DATA->value => ['platform' => 'ideamart', 'telco_format' => 'tel:123']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref-123', platform: 'ideamart', usedApiUrl: 'url1'),
+            SessionKey::PHONE_DATA->value => self::phone(platform: 'ideamart', telcoFormat: 'tel:123')
         ];
 
         $request = new Request([], ['otp' => '123456', 'csrf_token' => 'valid-token']);
@@ -815,7 +828,7 @@ class OtpControllerTest extends TestCase
 
     public function testShowOtpFormNoticeWhenSmsLinkShown(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref');
         $this->sessionData[SessionKey::SHOW_SMS_LINK->value] = true;
 
         $this->loggerMock->expects($this->once())
@@ -828,7 +841,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandlePageViewEventNoticeWhenErrorInSession(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref');
         $this->sessionData[SessionKey::ERROR_MESSAGE->value] = 'Some error';
 
         $this->loggerMock->expects($this->once())
@@ -840,7 +853,8 @@ class OtpControllerTest extends TestCase
 
     public function testValidateOtpRequestInvalidTokenStructureAjax(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = 'invalid-token-string';
+        // SMS fallback entered at the request step stores true instead of a token.
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = true;
         $this->csrfServiceMock->method('validate')->willReturn(true);
 
         $request = new Request([], ['csrf_token' => 'valid']);
@@ -856,7 +870,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxCsrfCheckFails(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref');
         $this->csrfServiceMock->method('validate')->willReturn(false);
 
         $request = new Request([], ['csrf_token' => 'bad']);
@@ -887,7 +901,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxInvalidFormat(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
@@ -904,7 +918,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxSuccessAndSubscribed(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', platform: 'ideamart');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::VERIFIED]);
@@ -922,7 +936,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxSuccessUnknownSubStatus(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', platform: 'ideamart');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_SUBSCRIBED]);
@@ -940,7 +954,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxVerificationFailsInvalidOtpWithSmsConfig(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', usedApiUrl: 'url1');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
@@ -958,7 +972,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxThirdInvalidOtpSendsVisitorToSmsLink(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', usedApiUrl: 'url1');
         $this->sessionData[SessionKey::INVALID_OTP_COUNT->value] = 2;
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
@@ -980,7 +994,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleOtpFormAjaxVerificationFailsOtpNotFoundWithSmsConfig(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', usedApiUrl: 'url1');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
@@ -1018,7 +1032,8 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $controller = new TestableOtpController(
@@ -1027,10 +1042,11 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref', usedApiUrl: 'url1');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
@@ -1066,7 +1082,8 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->rateLimiterMock
+            $this->rateLimiterMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $controller = new TestableOtpController(
@@ -1075,21 +1092,22 @@ class OtpControllerTest extends TestCase
             $analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'ref-123',
-                'usedApiUrl' => self::PRIMARY_API_URL,
-                'createdAt' => time(),
-                'platform' => 'ideamart'
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'ref-123',
+                usedApiUrl: self::PRIMARY_API_URL,
+                createdAt: time(),
+                platform: 'ideamart'
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
 
         $this->csrfServiceMock->method('validate')->willReturn(true);
@@ -1098,11 +1116,11 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
         $this->otpServiceMock->method('getOtp')->willReturn([
             'outcome' => OtpRequestOutcome::SENT,
-            'verificationToken' => [
-                'referenceNo' => 'new-ref-456',
-                'usedApiUrl' => self::PRIMARY_API_URL,
-                'createdAt' => time()
-            ]
+            'verificationToken' => self::token(
+                referenceNo: 'new-ref-456',
+                usedApiUrl: self::PRIMARY_API_URL,
+                createdAt: time()
+            )
         ]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
@@ -1117,7 +1135,7 @@ class OtpControllerTest extends TestCase
 
     public function testHandleFailedVerificationMissingDataAjax(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = ['referenceNo' => 'ref'];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(referenceNo: 'ref');
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
@@ -1135,15 +1153,15 @@ class OtpControllerTest extends TestCase
     public function testHandleFailedVerificationFallbackSuccessAjax(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'],
-            SessionKey::PHONE_DATA->value => ['telco_format' => '0771234567', 'platform' => 'ideamart']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref', usedApiUrl: 'url1', platform: 'ideamart'),
+            SessionKey::PHONE_DATA->value => self::phone(telcoFormat: '0771234567', platform: 'ideamart')
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
         $this->otpServiceMock->method('getOtp')->willReturn([
             'outcome' => OtpRequestOutcome::SENT,
-            'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url2']
+            'verificationToken' => self::token(referenceNo: 'new-ref', usedApiUrl: 'url2')
         ]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
@@ -1159,8 +1177,8 @@ class OtpControllerTest extends TestCase
     public function testHandleFailedVerificationFallbackFailsAjax(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'],
-            SessionKey::PHONE_DATA->value => ['telco_format' => '0771234567', 'platform' => 'ideamart']
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'ref', usedApiUrl: 'url1'),
+            SessionKey::PHONE_DATA->value => self::phone(telcoFormat: '0771234567', platform: 'ideamart')
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
@@ -1179,12 +1197,12 @@ class OtpControllerTest extends TestCase
 
     public function testHandleExpiredTokenMissingDataAjax(): void
     {
-        $this->sessionData[SessionKey::OTP_TOKEN->value] = [
-            'referenceNo' => 'ref',
-            'usedApiUrl' => 'url1',
-            'createdAt' => time(),
-            'platform' => null,
-        ];
+        $this->sessionData[SessionKey::OTP_TOKEN->value] = self::token(
+            referenceNo: 'ref',
+            usedApiUrl: 'url1',
+            createdAt: time(),
+            platform: '',
+        );
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
@@ -1202,17 +1220,17 @@ class OtpControllerTest extends TestCase
     public function testHandleExpiredTokenRenewFailsAjax(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'expired-ref',
-                'platform' => 'ideamart',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'expired-ref',
+                platform: 'ideamart',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
@@ -1232,28 +1250,28 @@ class OtpControllerTest extends TestCase
     public function testHandleExpiredTokenRenewSuccessAjax(): void
     {
         $this->sessionData = [
-            SessionKey::OTP_TOKEN->value => [
-                'referenceNo' => 'expired-ref',
-                'platform' => 'ideamart',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ],
-            SessionKey::PHONE_DATA->value => [
-                'telco_format' => '0771234567',
-                'platform' => 'ideamart',
-                'capi_format' => '94771234567'
-            ]
+            SessionKey::OTP_TOKEN->value => self::token(
+                referenceNo: 'expired-ref',
+                platform: 'ideamart',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            ),
+            SessionKey::PHONE_DATA->value => self::phone(
+                telcoFormat: '0771234567',
+                platform: 'ideamart',
+                capiFormat: '94771234567'
+            )
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
         $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
         $this->otpServiceMock->method('getOtp')->willReturn([
             'outcome' => OtpRequestOutcome::SENT,
-            'verificationToken' => [
-                'referenceNo' => 'new-ref-123',
-                'usedApiUrl' => 'url1',
-                'createdAt' => time()
-            ]
+            'verificationToken' => self::token(
+                referenceNo: 'new-ref-123',
+                usedApiUrl: 'url1',
+                createdAt: time()
+            )
         ]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);

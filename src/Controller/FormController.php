@@ -5,6 +5,7 @@ namespace App\Controller;
 
 use App\DTO\OtpFlowResult;
 use App\Service\OtpFlowService;
+use App\Service\OtpFlowState;
 use App\Service\SessionService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,7 +25,8 @@ class FormController extends BaseController
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
         protected SessionService $session,
-        private CsrfService $csrfService
+        private CsrfService $csrfService,
+        private OtpFlowState $otpFlowState
     ) {
     }
 
@@ -43,8 +45,6 @@ class FormController extends BaseController
             true
         );
 
-        $phoneData = $this->session->get(SessionKey::PHONE_DATA, []);
-
         // Prepare data for the view
         $data = [
             'config' => $this->config,
@@ -54,7 +54,7 @@ class FormController extends BaseController
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'errorMessage' => $this->session->get(SessionKey::ERROR_MESSAGE),
             'alreadyRegistered' => $this->session->get(SessionKey::ALREADY_REGISTERED),
-            'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'phoneCapi' => $this->otpFlowState->phone()?->capiFormat,
             'externalId' => $this->session->get(SessionKey::VISITOR_ID),
             'country' => 'lk',
             'csrfToken' => $this->csrfService->getToken(),
@@ -65,11 +65,8 @@ class FormController extends BaseController
         $this->session->unset(SessionKey::ERROR_MESSAGE);
         $this->session->unset(SessionKey::ALREADY_REGISTERED);
 
-        // Clear invalid OTP count and SMS link flag if exists when returning to the form
-        if ($this->session->has(SessionKey::SHOW_SMS_LINK) || $this->session->has(SessionKey::INVALID_OTP_COUNT)) {
-            $this->session->unset(SessionKey::INVALID_OTP_COUNT);
-            $this->session->unset(SessionKey::SHOW_SMS_LINK);
-        }
+        // Returning to the form clears the invalid OTP count and SMS fallback
+        $this->otpFlowState->resetAttempts();
 
         return $this->render('phone_form', $data);
     }

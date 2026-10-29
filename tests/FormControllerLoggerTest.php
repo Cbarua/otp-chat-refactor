@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use App\Service\OtpFlowState;
 use App\Enum\SessionKey;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\FormController;
@@ -116,7 +117,8 @@ class FormControllerLoggerTest extends TestCase
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
     }
 

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SessionFixtures;
+use App\Service\OtpFlowState;
 use App\Enum\SessionKey;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\FormController;
@@ -51,6 +53,8 @@ class TestableFormController extends FormController
 #[CoversClass(FormController::class)]
 class FormControllerTest extends TestCase
 {
+    use SessionFixtures;
+
     private TestableFormController $controller;
     private array $config;
     private MockObject|OtpFlowService $otpFlowServiceMock;
@@ -126,7 +130,8 @@ class FormControllerTest extends TestCase
             $this->analyticsTracker,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
     }
 
@@ -170,7 +175,7 @@ class FormControllerTest extends TestCase
     public function testShowPhoneFormWithExistingPhoneDataPassesCountryToCapi(): void
     {
         $request = Request::createFromGlobals();
-        $this->sessionData[SessionKey::PHONE_DATA->value] = ['capi_format' => '94771234567'];
+        $this->sessionData[SessionKey::PHONE_DATA->value] = self::phone(capiFormat: '94771234567');
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->once())
@@ -287,7 +292,8 @@ class FormControllerTest extends TestCase
             $analyticsTrackerWithoutCapi,
             $this->loggerMock,
             $this->sessionServiceMock,
-            $this->csrfServiceMock
+            $this->csrfServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
         );
 
         $request = Request::createFromGlobals();

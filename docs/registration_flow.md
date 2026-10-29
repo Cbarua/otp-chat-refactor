@@ -57,7 +57,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   **Session Setup**: Generates or retrieves long-lived `visitor_id`.
     *   **Facebook CAPI**: Calls `AnalyticsTrackerService::trackPageView()`. Fires `PageView` CAPI event with customer match keys (`ip`, `agent`, `external_id`). Skips `PageView` if there is a pending `error_message`.
     *   **View Preparation**: Renders `phone_form.php` template with CSRF token, GA Measurement ID, Pixel configs, and normalized carrier formats.
-    *   **Session Cleanup**: Clears flash state (`error_message`, `already_registered`, `invalid_otp_count`, `show_sms_link`).
+    *   **Session Cleanup**: Clears the flash (`error_message`, `already_registered`) and, through `OtpFlowState::resetAttempts()`, the invalid OTP count and SMS fallback (`invalid_otp_count`, `show_sms_link`).
 
 ---
 
@@ -77,18 +77,17 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **API Execution**: Calls `OtpApiService::getOtp($platform, $telcoFormat, $metaData)`.
 *   **Outcome Handling** (by `OtpRequestOutcome`, which `OtpApiService` maps from the last app's `statusCode`):
     *   **`SENT` (S1000)**:
-        *   Stores opaque `verificationToken` as `otp_token`.
-        *   Generates `lead_id` (`lead-xxxx`) for tracking.
+        *   `OtpFlowState::startVerificationStep()` stores the phone and the OTP token (`phone_data`, `otp_token`) and a new `lead_id` (`lead-xxxx`) for tracking.
         *   Redirects to `/otp` (HTML) or returns `{"status": "success", "message": null, "redirect": "otp"}` (AJAX).
     *   **`ALREADY_REGISTERED` (E1351)**:
         *   Logs notice detailing which app services user is registered on (`alreadyRegisteredUrls` from `OtpApiService`).
         *   Flashes `You are already registered!` under `already_registered` and redirects to `/`, or returns it with the status `already_registered`, which `phone-form.js` shows in its green box.
     *   **`TEMPORARY_FAILURE` (E1603)**:
-        *   If SMS fallback is configured (`sms.number` & `sms.keyword`), sets `show_sms_link = true` and a dummy `otp_token`, then redirects to `/otp`.
+        *   If SMS fallback is configured (`sms.number` & `sms.keyword`), calls `startVerificationStep()` without a token, which stores `show_sms_link = true` and the sentinel `true` as `otp_token`, then redirects to `/otp`.
         *   Otherwise, flashes `ERROR_GENERIC` and redirects to `/`.
     *   **`MAX_REQUESTS` (E1853)**:
         *   Blocks phone number for 3600 seconds (`otp_max_requests:{phone}`).
-        *   If SMS config present, sets `show_sms_link = true` and redirects to `/otp`.
+        *   If SMS config present, enters SMS fallback the same way and redirects to `/otp`.
         *   Otherwise, flashes the formatted error message and redirects to `/`.
     *   **`FAILED` (any other code, e.g. E1342 blacklisted, or no reply)**: logs an ERROR, flashes `ERROR_GENERIC` and redirects to `/`.
 
@@ -102,7 +101,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Actions**:
     *   **CAPI Events (`handleCapiEvents`)**:
         *   `PageView`: Fires `PageView` CAPI event for `/otp` with customer match data (skipped if displaying error).
-        *   `Lead`: If `lead_id` exists, fires the pending `Lead` event to Facebook CAPI and clears `lead_id`.
+        *   `Lead`: If `OtpFlowState::takeLeadId()` returns a pending `lead_id` (it clears it), fires the `Lead` event to Facebook CAPI and gives the Pixel the same id.
     *   **SMS Fallback Render**: If `$config['sms']` is configured and `show_sms_link` is true, renders the SMS link instructions instead of the OTP input field.
     *   **View Preparation & Cleanup**: Renders `otp_form.php` with CSRF token and unsets `error_message`.
 
@@ -115,14 +114,13 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Request Modes**: Full dual-mode support for HTML form submits and AJAX JSON.
 *   **Validation Pipeline**:
     1.  **CSRF Protection** (controller): Validates form token via `CsrfService`.
-    2.  **Session Security** (controller): Verifies `otp_token` exists and is an array or `ArrayAccess` token (the SMS-fallback sentinel `true` is rejected).
+    2.  **Session Security** (controller): Checks `OtpFlowState::inVerificationStep()` and `token()`; the SMS-fallback sentinel `true` reads as no token, and both cases answer "Session expired" and send the visitor to `/`.
     3.  **Rate Limiting**: Checks `otp_verification:{visitorId}` via `RateLimiterService` (limit: **5 attempts per 10 minutes**). If exceeded, triggers `handleFailedVerification`.
     4.  **Format Validation**: Verifies OTP is exactly 6 numeric digits via `Validator::validateOtp`.
 *   **API Verification**: Calls `OtpApiService::verifyOtp($token, $rawOtp)`.
 *   **Outcome Handling (`handleVerificationResponse`, by `OtpVerifyOutcome`)**:
     *   **`VERIFIED` (S1000 with subscription status `REGISTERED`, `INITIAL CHARGING PENDING` or mspace's `INITIAL_CHARGING_PENDING`)**:
-        *   Generates `reg_id` (`reg-xxxx`).
-        *   Clears `invalid_otp_count` and `show_sms_link`.
+        *   `OtpFlowState::register()` stores a new `reg_id` (`reg-xxxx`) and clears `invalid_otp_count` and `show_sms_link`.
         *   Redirects to `/thanks` or returns `{"status": "success", "message": null, "redirect": "thanks"}`.
     *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", flashes `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
     *   **`EXPIRED` (E1851)**:
@@ -149,7 +147,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
         *   Fires `PageView` event for `/thanks`.
         *   Fires `CompleteRegistration` event using `reg_id` as event ID, sending conversion metadata (`currency => 'USD'`, `value => '0.01'`).
     *   **View Preparation**: Renders `thanks.php` view.
-    *   **Session Cleanup**: Unsets `reg_id` and `otp_token` to prevent re-firing conversion events on page refresh.
+    *   **Session Cleanup**: `OtpFlowState::finish()` unsets `reg_id` and `otp_token` to prevent re-firing conversion events on page refresh; `phone_data` stays.
 
 ---
 
@@ -200,12 +198,13 @@ Handles Server-Side Conversion API event dispatching:
 *   Extracts `fbp`, `fbc`, IP address, and User-Agent.
 *   Sends asynchronous event payloads for `PageView`, `Lead`, and `CompleteRegistration`.
 
-### 4. `App\Service\SessionService`
-Primary session keys powering the flow:
-*   `visitor_id`: Anonymous long-lived tracking ID.
-*   `phone_data`: Normalized phone data (`capi_format`, `telco_format`, `platform`).
-*   `otp_token`: Opaque verification token array.
+### 4. `App\Service\OtpFlowState`
+Owns the OTP flow's session keys, through `SessionService`. Sessions in flight hold these values serialized, so the keys and the stored types must stay readable across a deploy:
+*   `phone_data`: the `PhoneNumber` submitted last.
+*   `otp_token`: the `OtpVerificationToken`, or the literal `true` in SMS fallback entered at the request step (`token()` returns null for it).
 *   `lead_id`: Pending Facebook Lead event ID.
 *   `reg_id`: Proof of successful subscription verification.
 *   `invalid_otp_count`: Failed OTP attempt counter.
 *   `show_sms_link`: Boolean toggle for rendering SMS fallback.
+
+`visitor_id` (the anonymous long-lived tracking ID), the flash and the analytics ids stay with `SessionService`. `AnalyticsTrackerService` also reads `phone_data` itself, as the fallback for a PageView without a phone.

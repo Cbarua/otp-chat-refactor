@@ -33,6 +33,7 @@ use App\Service\UserInfoService;
 use App\Service\CsrfService;
 use App\Service\RateLimiterService;
 use App\Service\OtpFlowService;
+use App\Service\OtpFlowState;
 use Monolog\Level;
 use Monolog\Logger;
 use Monolog\Handler\RotatingFileHandler;
@@ -62,6 +63,11 @@ $container['carrierConfig'] = require_once __DIR__ . '/../config/carriers.php';
 // Must be registered first as other services depend on it.
 $container['SessionService'] = function ($c) {
     return new SessionService();
+};
+
+// OTP flow state (session-backed)
+$container['OtpFlowState'] = function ($c) {
+    return new OtpFlowState($c['SessionService']);
 };
 
 // User Info Service
@@ -165,7 +171,8 @@ $container['OtpFlowService'] = function ($c) {
         $c['AnalyticsTrackerService'],
         $c['Logger'],
         $c['SessionService'],
-        $c['RateLimiterService']
+        $c['RateLimiterService'],
+        $c['OtpFlowState']
     );
 };
 
@@ -213,7 +220,8 @@ $container['FormController'] = function ($c) {
         $c['AnalyticsTrackerService'],
         $c['Logger'],
         $c['SessionService'],
-        $c['CsrfService']
+        $c['CsrfService'],
+        $c['OtpFlowState']
     );
 };
 
@@ -224,7 +232,8 @@ $container['OtpController'] = function ($c) {
         $c['AnalyticsTrackerService'],
         $c['Logger'],
         $c['SessionService'],
-        $c['CsrfService']
+        $c['CsrfService'],
+        $c['OtpFlowState']
     );
 };
 
@@ -233,7 +242,8 @@ $container['ThankYouController'] = function ($c) {
         $c['config'],
         $c['AnalyticsTrackerService'],
         $c['Logger'],
-        $c['SessionService']
+        $c['SessionService'],
+        $c['OtpFlowState']
     );
 };
 

@@ -9,6 +9,7 @@ use App\Enum\SessionKey;
 use App\Service\AnalyticsTrackerService;
 use App\Service\CsrfService;
 use App\Service\OtpFlowService;
+use App\Service\OtpFlowState;
 use App\Service\SessionService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -29,7 +30,8 @@ class OtpController extends BaseController
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
         protected SessionService $session,
-        private CsrfService $csrfService
+        private CsrfService $csrfService,
+        private OtpFlowState $otpFlowState
     ) {
     }
 
@@ -41,7 +43,7 @@ class OtpController extends BaseController
         $userInfo = $this->analyticsTracker->getUserInfo($request);
 
         // Security Check: Ensure user has a token from the previous step.
-        if (!$this->session->has(SessionKey::OTP_TOKEN)) {
+        if (!$this->otpFlowState->inVerificationStep()) {
             $this->logger->error('OTP form accessed without a token', $userInfo);
             return $this->redirect('./');
         }
@@ -56,17 +58,17 @@ class OtpController extends BaseController
             SessionKey::PAGE_VIEW_ID_OTP
         );
 
-        $phoneData = $this->session->get(SessionKey::PHONE_DATA, []);
-        if ($this->session->has(SessionKey::LEAD_ID) && isset($phoneData['capi_format'])) {
-            $leadId = $this->session->get(SessionKey::LEAD_ID);
-            $this->analyticsTracker->trackLead($request, $phoneData, $leadId);
+        $phone = $this->otpFlowState->phone();
+        $leadId = $this->otpFlowState->takeLeadId();
+        if ($leadId !== null && $phone !== null) {
+            $this->analyticsTracker->trackLead($request, $phone, $leadId);
         }
 
         $smsNumber = $this->config['sms']['number'] ?? null;
         $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
         // Ensure SMS link is only shown if SMS number and keyword are configured
-        $showSmsLink = ($smsNumber && $smsKeyword) ? (bool) $this->session->get(SessionKey::SHOW_SMS_LINK, false) : false;
+        $showSmsLink = $smsNumber && $smsKeyword && $this->otpFlowState->inSmsFallback();
 
         if ($showSmsLink) {
             $this->logger->notice('SMS link shown', [
@@ -79,9 +81,9 @@ class OtpController extends BaseController
         $data = [
             'config' => $this->config,
             'title' => 'OTP Form',
-            'leadEventId' => $this->session->get(SessionKey::LEAD_ID),
+            'leadEventId' => $leadId,
             'pageViewEventId' => $this->session->get(SessionKey::PAGE_VIEW_ID_OTP),
-            'phoneCapi' => $phoneData['capi_format'] ?? null,
+            'phoneCapi' => $phone?->capiFormat,
             'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
             'externalId' => $this->session->get(SessionKey::VISITOR_ID),
@@ -95,7 +97,6 @@ class OtpController extends BaseController
         ];
 
         $this->session->unset(SessionKey::ERROR_MESSAGE);
-        $this->session->unset(SessionKey::LEAD_ID);
 
         return $this->render('otp_form', $data);
     }
@@ -123,14 +124,14 @@ class OtpController extends BaseController
             return OtpFlowResult::error(self::ERROR_CSRF, 'otp');
         }
 
-        if (!$this->session->has(SessionKey::OTP_TOKEN)) {
+        if (!$this->otpFlowState->inVerificationStep()) {
             $this->logger->error('OTP submission without a token.');
             return OtpFlowResult::error(self::ERROR_SESSION_EXPIRED, './', flash: false);
         }
 
-        $token = $this->session->get(SessionKey::OTP_TOKEN);
-        if (!is_array($token) && !($token instanceof \ArrayAccess)) {
-            $this->logger->error('Invalid OTP token structure in session.', ['token_type' => gettype($token)]);
+        // SMS fallback entered at the request step holds no token.
+        if ($this->otpFlowState->token() === null) {
+            $this->logger->error('Invalid OTP token structure in session.');
             return OtpFlowResult::error(self::ERROR_SESSION_EXPIRED, './', flash: false);
         }
 
