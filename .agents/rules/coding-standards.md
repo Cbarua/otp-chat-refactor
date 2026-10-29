@@ -31,7 +31,7 @@ description: Coding standards and architecture guidelines for the OTP Chat Refac
 
 - **Controllers (`src/Controller/`)**:
   - All controllers must extend `App\Controller\BaseController`.
-  - Controllers must only orchestrate requests: validate input, call appropriate domain services, and return Symfony `Response` instances (`json()`, `render()`, `redirect()`).
+  - Controllers must only orchestrate requests: validate input, call appropriate domain services, and return Symfony `Response` instances (`json()`, `render()`, `redirect()`, or `respond()`, which answers an `OtpFlowResult` for both XHR and plain form posts).
   - Keep controllers thin; domain logic and external communication belong in the Service layer.
 - **Templates (`templates/`)**:
   - Templates should contain minimal PHP logic (loops, conditionals, and output only).

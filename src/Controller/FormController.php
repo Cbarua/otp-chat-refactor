@@ -3,6 +3,7 @@
 
 namespace App\Controller;
 
+use App\DTO\OtpFlowResult;
 use App\Service\OtpFlowService;
 use App\Service\SessionService;
 use Psr\Log\LoggerInterface;
@@ -32,7 +33,7 @@ class FormController extends BaseController
         private OtpFlowService $otpFlowService,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
-        private SessionService $session,
+        protected SessionService $session,
         private CsrfService $csrfService
     ) {
     }
@@ -103,21 +104,9 @@ class FormController extends BaseController
         $csrfToken = $request->request->get('csrf_token');
         if (!$this->csrfService->validate($csrfToken)) {
             $this->logger->warning('CSRF token validation failed on phone form submission.', ['csrf_token' => $csrfToken]);
-            if ($isAjax) {
-                return $this->json(['status' => 'error', 'message' => self::ERROR_CSRF]);
-            }
-            $this->session->set(self::SESSION_ERROR, self::ERROR_CSRF);
-            return $this->redirect('./');
+            return $this->respond($request, OtpFlowResult::error(self::ERROR_CSRF), './');
         }
 
-        $result = $this->otpFlowService->requestOtp($request, (string) $rawPhone);
-
-        if ($isAjax) {
-            // The flash messages are for the HTML redirect; the JSON body carries the message instead.
-            $this->session->unset(self::SESSION_ERROR);
-            $this->session->unset(self::SESSION_ALREADY_REGISTERED);
-            return $this->json($result->toArray());
-        }
-        return $this->redirect($result->redirectUrl);
+        return $this->respond($request, $this->otpFlowService->requestOtp($request, (string) $rawPhone), './');
     }
 }

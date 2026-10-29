@@ -143,9 +143,9 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->makeService($this->config)->requestOtp($this->phoneRequest(), self::RAW_PHONE);
 
         $this->assertFalse($result->isSuccess());
-        $this->assertSame('./', $result->redirectUrl);
+        $this->assertNull($result->next);
         $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_RATE_LIMIT], $result->toArray());
-        $this->assertSame(OtpFlowService::ERROR_RATE_LIMIT, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertTrue($result->flash);
     }
 
     public static function invalidPhoneProvider(): array
@@ -183,8 +183,8 @@ class OtpFlowServiceTest extends TestCase
         $this->assertTrue($seenValidator, 'Expected the Validator warning to be forwarded to the logger.');
         $this->assertTrue($seen, 'Expected the "Invalid phone number submitted" warning.');
         $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_INVALID_PHONE], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame(OtpFlowService::ERROR_INVALID_PHONE, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
     }
 
     public function testRequestOtpBlockedNumberReturnsMaxRequestsError(): void
@@ -206,8 +206,8 @@ class OtpFlowServiceTest extends TestCase
 
         $expected = 'Maximum number of OTP requests reached for 0771234567. Please try again in 3 minutes';
         $this->assertSame(['status' => 'error', 'message' => $expected], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame($expected, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
     }
 
     public function testRequestOtpReusesRecentTokenForSameNumber(): void
@@ -232,7 +232,7 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->requestOtp($request, self::RAW_PHONE);
 
         $this->assertTrue($result->isSuccess());
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('otp', $result->next);
         $this->assertSame(['status' => 'success', 'redirect' => 'otp'], $result->toArray());
         $this->assertArrayNotHasKey(SessionKey::LEAD_ID->value, $_SESSION);
     }
@@ -252,7 +252,7 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
 
         $this->assertTrue($result->isSuccess());
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('otp', $result->next);
         $this->assertSame($token, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
@@ -317,7 +317,7 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->requestOtp($request, self::RAW_PHONE);
 
         $this->assertTrue($result->isSuccess());
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('otp', $result->next);
         $this->assertSame(['status' => 'success', 'redirect' => 'otp'], $result->toArray());
         $this->assertStringStartsWith('lead-', $_SESSION[SessionKey::LEAD_ID->value]);
         $this->assertEquals(
@@ -394,8 +394,11 @@ class OtpFlowServiceTest extends TestCase
 
         // phone-form.js matches this exact message.
         $this->assertSame(['status' => 'error', 'message' => 'user already registered'], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame(OtpFlowService::ALREADY_REGISTERED, $_SESSION[SessionKey::ALREADY_REGISTERED->value]);
+        $this->assertSame('already_registered', $result->status);
+        $this->assertSame(OtpFlowService::ALREADY_REGISTERED, $result->message);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
+        $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $_SESSION);
         $this->assertInstanceOf(PhoneNumber::class, $_SESSION[SessionKey::PHONE_DATA->value]);
         $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $_SESSION);
         $this->assertArrayNotHasKey(SessionKey::LEAD_ID->value, $_SESSION);
@@ -415,8 +418,8 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->makeService([])->requestOtp($this->phoneRequest(), self::RAW_PHONE);
 
         $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_GENERIC], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame(OtpFlowService::ERROR_GENERIC, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
         $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
         $this->assertArrayNotHasKey(SessionKey::OTP_TOKEN->value, $_SESSION);
     }
@@ -441,7 +444,8 @@ class OtpFlowServiceTest extends TestCase
             ['status' => 'error', 'message' => 'Temporary system error', 'showSmsLink' => true, 'redirect' => 'otp'],
             $result->toArray()
         );
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('otp', $result->next);
+        $this->assertFalse($result->flash);
         $this->assertSmsFallbackSessionState();
     }
 
@@ -471,7 +475,8 @@ class OtpFlowServiceTest extends TestCase
             ],
             $result->toArray()
         );
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertSame('otp', $result->next);
+        $this->assertFalse($result->flash);
         $this->assertSmsFallbackSessionState();
     }
 
@@ -494,8 +499,8 @@ class OtpFlowServiceTest extends TestCase
 
         $expected = 'Maximum number of OTP requests reached for 0771234567. Please try again in 60 minutes';
         $this->assertSame(['status' => 'error', 'message' => $expected], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame($expected, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
         $this->assertArrayNotHasKey(SessionKey::SHOW_SMS_LINK->value, $_SESSION);
         $this->assertArrayNotHasKey(SessionKey::OTP_TOKEN->value, $_SESSION);
     }
@@ -515,8 +520,8 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->requestOtp($this->phoneRequest(), self::RAW_PHONE);
 
         $this->assertSame(['status' => 'error', 'message' => OtpFlowService::ERROR_GENERIC], $result->toArray());
-        $this->assertSame('./', $result->redirectUrl);
-        $this->assertSame(OtpFlowService::ERROR_GENERIC, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
         $this->assertArrayNotHasKey(SessionKey::ALREADY_REGISTERED->value, $_SESSION);
     }
 
@@ -532,8 +537,8 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_INVALID_LENGTH, $result->message);
-        $this->assertEquals('otp', $result->redirectUrl);
-        $this->assertEquals(OtpFlowService::ERROR_OTP_INVALID_LENGTH, $_SESSION[SessionKey::ERROR_MESSAGE->value]);
+        $this->assertNull($result->next);
+        $this->assertTrue($result->flash);
     }
 
     public function testProcessVerificationSuccessSubscribed(): void
@@ -551,7 +556,7 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->processVerification($request, '123456');
 
         $this->assertTrue($result->isSuccess());
-        $this->assertEquals('thanks', $result->redirectUrl);
+        $this->assertSame('thanks', $result->next);
         $this->assertArrayHasKey(SessionKey::REG_ID->value, $_SESSION);
         $this->assertStringStartsWith('reg-', $_SESSION[SessionKey::REG_ID->value]);
         $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $_SESSION);
@@ -572,7 +577,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_REGISTRATION_FAILED, $result->message);
-        $this->assertEquals('otp', $result->redirectUrl);
+        $this->assertNull($result->next);
     }
 
     public function testProcessVerificationInvalidOtpIncrementsCountAndShowsSmsLinkOnThirdAttempt(): void
@@ -588,18 +593,22 @@ class OtpFlowServiceTest extends TestCase
         $result1 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result1->isSuccess());
         $this->assertFalse($result1->showSmsLink);
+        $this->assertTrue($result1->flash);
         $this->assertEquals(1, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
 
         // Attempt 2
         $result2 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result2->isSuccess());
         $this->assertFalse($result2->showSmsLink);
+        $this->assertTrue($result2->flash);
         $this->assertEquals(2, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
 
         // Attempt 3
         $result3 = $this->service->processVerification($request, '123456');
         $this->assertFalse($result3->isSuccess());
         $this->assertTrue($result3->showSmsLink);
+        $this->assertFalse($result3->flash);
+        $this->assertSame(OtpFlowService::ERROR_OTP_INVALID, $result3->message);
         $this->assertEquals(3, $_SESSION[SessionKey::INVALID_OTP_COUNT->value]);
     }
 
@@ -618,6 +627,7 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertTrue($result->showSmsLink);
         $this->assertEquals('OTP not found.', $result->message);
+        $this->assertFalse($result->flash);
     }
 
     public function testProcessVerificationOtpNotFoundWithoutSmsConfigTriggersAutoRenewal(): void
@@ -649,7 +659,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
-        $this->assertEquals('otp', $result->redirectUrl);
+        $this->assertNull($result->next);
         $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
@@ -680,7 +690,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
-        $this->assertEquals('otp', $result->redirectUrl);
+        $this->assertNull($result->next);
         $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
@@ -714,7 +724,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_NEW, $result->message);
-        $this->assertEquals('otp', $result->redirectUrl);
+        $this->assertNull($result->next);
     }
 
     public function testProcessVerificationAttemptsExhaustedFallsBackWithoutCriticalLog(): void
@@ -741,7 +751,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertContains('OTP attempts exhausted, trying another app.', $notices);
         $this->assertSame(OtpFlowService::ERROR_OTP_NEW, $result->message);
-        $this->assertSame('otp', $result->redirectUrl);
+        $this->assertNull($result->next);
         $this->assertSame('refFallback', $_SESSION[SessionKey::OTP_TOKEN->value]->referenceNo);
     }
 
@@ -760,7 +770,7 @@ class OtpFlowServiceTest extends TestCase
 
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_GENERIC, $result->message);
-        $this->assertEquals('./', $result->redirectUrl);
+        $this->assertSame('./', $result->next);
     }
 
 }

@@ -3,12 +3,38 @@
 
 namespace App\Controller;
 
+use App\DTO\OtpFlowResult;
+use App\Enum\SessionKey;
+use App\Service\SessionService;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 abstract class BaseController
 {
+    protected SessionService $session;
+
+    /**
+     * Answers a form post with the result of a flow step: JSON for XHR, otherwise the
+     * flash message and a redirect to the next page ($here when the visitor stays).
+     */
+    protected function respond(Request $request, OtpFlowResult $result, string $here): Response
+    {
+        if ($request->isXmlHttpRequest()) {
+            // A flash left by an earlier HTML round trip must not show on the next page render.
+            $this->session->unset(SessionKey::ERROR_MESSAGE);
+            $this->session->unset(SessionKey::ALREADY_REGISTERED);
+            return $this->json($result->toArray());
+        }
+
+        if ($result->flash) {
+            $key = $result->status === 'already_registered' ? SessionKey::ALREADY_REGISTERED : SessionKey::ERROR_MESSAGE;
+            $this->session->set($key, $result->message);
+        }
+        return $this->redirect($result->next ?? $here);
+    }
+
     /**
      * Returns a JsonResponse.
      *

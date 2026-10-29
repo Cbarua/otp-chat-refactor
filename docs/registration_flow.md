@@ -65,7 +65,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 
 *   **Controller**: `src/Controller/FormController.php`, method `handlePhoneForm()`: logs the submission, validates the CSRF token, then calls the service and answers with the result.
 *   **Service**: `src/Service/OtpFlowService.php`, method `requestOtp(Request $request, string $rawPhone): OtpFlowResult`.
-*   **Request Modes**: Supports both standard HTML form posts and AJAX (`Request::isXmlHttpRequest`). The service always writes the flash message for the HTML flow to the session and returns an `OtpFlowResult`; the controller redirects to `$result->redirectUrl` (HTML) or returns `$result->toArray()` as JSON and clears `SESSION_ERROR` / `SESSION_ALREADY_REGISTERED` (AJAX).
+*   **Request Modes**: Supports both standard HTML form posts and AJAX (`Request::isXmlHttpRequest`). The service returns an `OtpFlowResult` and writes no flash; `BaseController::respond()` returns `$result->toArray()` as JSON and clears any stale `SESSION_ERROR` / `SESSION_ALREADY_REGISTERED` (AJAX), or writes the result's message as the flash and redirects to `$result->next`, or back to the submitting page when it is null (HTML). The flash goes under `SESSION_ALREADY_REGISTERED` for an already registered number, and there is none for success, the SMS-fallback results or an expired session.
 *   **Validation Pipeline**:
     1.  **CSRF Protection** (controller): Validates token using `CsrfService`. Returns JSON/redirects with `ERROR_CSRF` on failure without calling the service.
     2.  **IP Rate Limiting**: Checks `phone_submission:{ip}` via `RateLimiterService` (limit: **5 attempts per minute**).
@@ -82,15 +82,15 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
         *   Redirects to `/otp` (HTML) or returns `{"status": "success", "redirect": "otp"}` (AJAX).
     *   **`ALREADY_REGISTERED` (E1351)**:
         *   Logs notice detailing which app services user is registered on (`alreadyRegisteredUrls` from `OtpApiService`).
-        *   Sets `SESSION_ALREADY_REGISTERED` and redirects to `/`, or returns a JSON error whose message is `user already registered` (`phone-form.js` matches that text).
+        *   Flashes `You are already registered!` under `SESSION_ALREADY_REGISTERED` and redirects to `/`, or returns a JSON error whose message is `user already registered` (`phone-form.js` matches that text).
     *   **`TEMPORARY_FAILURE` (E1603)**:
         *   If SMS fallback is configured (`sms.number` & `sms.keyword`), sets `SESSION_SHOW_SMS_LINK = true` and a dummy `SESSION_OTP_TOKEN`, then redirects to `/otp`.
-        *   Otherwise, sets `ERROR_GENERIC` and redirects to `/`.
+        *   Otherwise, flashes `ERROR_GENERIC` and redirects to `/`.
     *   **`MAX_REQUESTS` (E1853)**:
         *   Blocks phone number for 3600 seconds (`otp_max_requests:{phone}`).
         *   If SMS config present, sets `SESSION_SHOW_SMS_LINK = true` and redirects to `/otp`.
-        *   Otherwise, sets formatted error message and redirects to `/`.
-    *   **`FAILED` (any other code, e.g. E1342 blacklisted, or no reply)**: logs an ERROR, sets `ERROR_GENERIC` and redirects to `/`.
+        *   Otherwise, flashes the formatted error message and redirects to `/`.
+    *   **`FAILED` (any other code, e.g. E1342 blacklisted, or no reply)**: logs an ERROR, flashes `ERROR_GENERIC` and redirects to `/`.
 
 ---
 
@@ -124,13 +124,13 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
         *   Generates `SESSION_REG_ID` (`reg-xxxx`).
         *   Clears `SESSION_INVALID_OTP_COUNT` and `SESSION_SHOW_SMS_LINK`.
         *   Redirects to `/thanks` or returns `{"status": "success", "redirect": "thanks"}`.
-    *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", sets `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
+    *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", flashes `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
     *   **`EXPIRED` (E1851)**:
         *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again (apps that already failed are not excluded).
-        *   Sets `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and updates `SESSION_OTP_TOKEN`.
+        *   Flashes `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and updates `SESSION_OTP_TOKEN`.
     *   **`INVALID` (E1850)**:
-        *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` to reveal the SMS link, otherwise sets `ERROR_OTP_INVALID`.
-        *   Without SMS config: sets `ERROR_OTP_INVALID` (no counter).
+        *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` to reveal the SMS link, otherwise flashes `ERROR_OTP_INVALID`.
+        *   Without SMS config: flashes `ERROR_OTP_INVALID` (no counter).
     *   **`NOT_FOUND` (E1854)**:
         *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and returns SMS fallback link.
         *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
@@ -173,10 +173,10 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 ## Service Layer & State Architecture
 
 ### 0. `App\Service\OtpFlowService`
-The OTP flow module. Two public methods, one per step, both returning `App\DTO\OtpFlowResult` (`status`, `message`, `redirectUrl`, `showSmsLink`, `ajaxRedirect`; `toArray()` is the AJAX body):
+The OTP flow module. Two public methods, one per step, both returning `App\DTO\OtpFlowResult` (`status`, `message`, `next`, `showSmsLink`, `flash`; `toArray()` is the AJAX body):
 *   `requestOtp($request, $rawPhone)`: rate limit, phone normalization, 60-minute block, token reuse, `OtpApiService::getOtp()` with app fallback, already-registered / SMS fallback / error outcomes.
 *   `processVerification($request, $rawOtp)`: rate limit, format check, `OtpApiService::verifyOtp()`, token renewal and app fallback, SMS fallback after repeated failures.
-Both write the session state for the next step and the HTML flash message; they never read cookies or produce HTTP responses.
+Both write the session state for the next step and leave the HTML flash message to `BaseController::respond()`; they never read cookies or produce HTTP responses.
 
 ### 1. `App\Service\OtpApiService`
 The only class that reads the platforms' replies. It maps each reply's `statusCode` (and, on verify, `subscriptionStatus`) to `App\Enum\OtpRequestOutcome` / `OtpVerifyOutcome`; the codes mean the same on all three platforms (`docs/provider_status_codes.md`):

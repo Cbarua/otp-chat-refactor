@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\DTO\OtpFlowResult;
 use App\Enum\SessionKey;
 use App\Service\AnalyticsTrackerService;
 use App\Service\CsrfService;
@@ -30,13 +31,14 @@ class OtpController extends BaseController
 
     // Error Messages
     private const ERROR_CSRF = OtpFlowService::ERROR_CSRF;
+    private const ERROR_SESSION_EXPIRED = 'Session expired. Please try again.';
 
     public function __construct(
         private array $config,
         private OtpFlowService $otpFlowService,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
-        private SessionService $session,
+        protected SessionService $session,
         private CsrfService $csrfService
     ) {
     }
@@ -113,53 +115,33 @@ class OtpController extends BaseController
      */
     public function handleOtpForm(Request $request): Response
     {
-        $errorResponse = $this->validateOtpRequest($request);
-        if ($errorResponse !== null) {
-            return $errorResponse;
-        }
+        $result = $this->validateOtpRequest($request)
+            ?? $this->otpFlowService->processVerification($request, (string) $request->request->get('otp', ''));
 
-        $rawOtp = (string) $request->request->get('otp', '');
-        $result = $this->otpFlowService->processVerification($request, $rawOtp);
-
-        if ($request->isXmlHttpRequest()) {
-            $this->session->unset(SessionKey::ERROR_MESSAGE);
-            return $this->json($result->toArray());
-        }
-
-        return $this->redirect($result->redirectUrl);
+        return $this->respond($request, $result, 'otp');
     }
 
     /**
      * Validates CSRF token and session OTP token validity before processing.
      */
-    private function validateOtpRequest(Request $request): ?Response
+    private function validateOtpRequest(Request $request): ?OtpFlowResult
     {
         $csrfToken = $request->request->get('csrf_token');
         if (!$this->csrfService->validate($csrfToken)) {
             $this->logger->warning('CSRF token validation failed on OTP form submission.', ['csrf_token' => $csrfToken]);
-            if ($request->isXmlHttpRequest()) {
-                // load the otp page for new csrf token
-                return $this->json(['status' => 'error', 'message' => self::ERROR_CSRF, 'redirect' => 'otp']);
-            }
-            $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_CSRF);
-            return $this->redirect('otp');
+            // load the otp page for new csrf token
+            return OtpFlowResult::error(self::ERROR_CSRF, 'otp');
         }
 
         if (!$this->session->has(SessionKey::OTP_TOKEN)) {
             $this->logger->error('OTP submission without a token.');
-            if ($request->isXmlHttpRequest()) {
-                return $this->json(['status' => 'error', 'message' => 'Session expired. Please try again.', 'redirect' => './']);
-            }
-            return $this->redirect('./');
+            return OtpFlowResult::error(self::ERROR_SESSION_EXPIRED, './', flash: false);
         }
 
         $token = $this->session->get(SessionKey::OTP_TOKEN);
         if (!is_array($token) && !($token instanceof \ArrayAccess)) {
             $this->logger->error('Invalid OTP token structure in session.', ['token_type' => gettype($token)]);
-            if ($request->isXmlHttpRequest()) {
-                return $this->json(['status' => 'error', 'message' => 'Session expired. Please try again.', 'redirect' => './']);
-            }
-            return $this->redirect('./');
+            return OtpFlowResult::error(self::ERROR_SESSION_EXPIRED, './', flash: false);
         }
 
         return null;

@@ -21,7 +21,7 @@ class ThankYouController extends BaseController
         private array $config,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
-        private SessionService $session
+        protected SessionService $session
     ) {
     }
 

@@ -327,30 +327,54 @@ class FormControllerTest extends TestCase
         $this->assertEquals('Security check failed. Please try again.', $data['message']);
     }
 
-    public function testHandlePhoneFormHtmlRedirectsToServiceErrorUrlAndKeepsFlashMessages(): void
+    public function testHandlePhoneFormHtmlFlashesServiceErrorAndStays(): void
     {
         $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
-
-        // Stands in for the service's session writes: the redirected page renders these, so the
-        // HTML path must leave them alone (only the AJAX path clears them).
-        $this->sessionData[FormController::SESSION_ERROR] = 'some message';
-        $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'You are already registered!';
 
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
         $this->otpFlowServiceMock->expects($this->once())
             ->method('requestOtp')
             ->with($this->identicalTo($request), '0771234567')
-            ->willReturn(OtpFlowResult::error('some message', './'));
+            ->willReturn(OtpFlowResult::error('some message'));
 
         $response = $this->controller->handlePhoneForm($request);
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
         $this->assertEquals('./', $this->controller->redirectUrl);
         $this->assertSame('some message', $this->sessionData[FormController::SESSION_ERROR]);
-        $this->assertSame(
-            'You are already registered!',
-            $this->sessionData[FormController::SESSION_ALREADY_REGISTERED]
-        );
+        $this->assertArrayNotHasKey(FormController::SESSION_ALREADY_REGISTERED, $this->sessionData);
+    }
+
+    public function testHandlePhoneFormHtmlFlashesAlreadyRegisteredUnderItsOwnKey(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->otpFlowServiceMock->expects($this->once())
+            ->method('requestOtp')
+            ->willReturn(OtpFlowResult::alreadyRegistered('You are already registered!'));
+
+        $this->controller->handlePhoneForm($request);
+
+        $this->assertEquals('./', $this->controller->redirectUrl);
+        $this->assertSame('You are already registered!', $this->sessionData[FormController::SESSION_ALREADY_REGISTERED]);
+        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
+    }
+
+    public function testHandlePhoneFormHtmlSmsFallbackWritesNoFlash(): void
+    {
+        $request = new Request([], ['mobile' => '0771234567', 'csrf_token' => 'valid-token']);
+
+        $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
+        $this->otpFlowServiceMock->expects($this->once())
+            ->method('requestOtp')
+            ->willReturn(OtpFlowResult::error('Temporary system error', 'otp', showSmsLink: true, flash: false));
+
+        $this->controller->handlePhoneForm($request);
+
+        // otp_form.php hides the SMS link while an error message is set.
+        $this->assertEquals('otp', $this->controller->redirectUrl);
+        $this->assertArrayNotHasKey(FormController::SESSION_ERROR, $this->sessionData);
     }
 
     public function testHandlePhoneFormHtmlRedirectsToServiceSuccessUrl(): void
@@ -378,7 +402,7 @@ class FormControllerTest extends TestCase
         $this->sessionData[FormController::SESSION_ERROR] = 'stale error';
         $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'stale already registered';
 
-        $result = OtpFlowResult::error('Temporary system error', 'otp', true, 'otp');
+        $result = OtpFlowResult::error('Temporary system error', 'otp', showSmsLink: true, flash: false);
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
         $this->otpFlowServiceMock->expects($this->once())
             ->method('requestOtp')
