@@ -59,7 +59,7 @@ class AnalyticsTrackerServiceTest extends TestCase
         $this->sessionServiceMock->method('get')->willReturnCallback(function ($key) {
             return match ($key) {
                 SessionKey::VISITOR_ID => 'v_test123',
-                SessionKey::PHONE_DATA => ['capi_format' => '94771234567'],
+                SessionKey::PHONE_DATA => new PhoneNumber('0771234567', 'tel:94771234567', '94771234567', 'ideamart', 0.018),
                 default => null,
             };
         });
@@ -69,7 +69,8 @@ class AnalyticsTrackerServiceTest extends TestCase
             'PageView',
             $this->stringStartsWith('pgview-'),
             'http://localhost:8080/',
-            $this->isType('array')
+            // No phone passed: the session's phone_data is used for matching.
+            $this->callback(fn (array $userData) => $userData['phone'] === '94771234567')
         );
 
         $this->userLoggerMock->expects($this->once())->method('logVisit');

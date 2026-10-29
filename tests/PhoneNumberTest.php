@@ -25,28 +25,6 @@ class PhoneNumberTest extends TestCase
         $this->assertEquals('LK', $phone->country);
     }
 
-    public function testArrayAccessAndBackwardCompatibility(): void
-    {
-        $phone = new PhoneNumber(
-            rawNumber: '0771234567',
-            telcoFormat: 'tel:94771234567',
-            capiFormat: '94771234567',
-            platform: 'ideamart',
-            value: 0.018,
-            country: 'LK'
-        );
-
-        $this->assertTrue(isset($phone['telco_format']));
-        $this->assertTrue(isset($phone['capi_format']));
-        $this->assertTrue(isset($phone['platform']));
-        $this->assertTrue(isset($phone['value']));
-
-        $this->assertEquals('tel:94771234567', $phone['telco_format']);
-        $this->assertEquals('94771234567', $phone['capi_format']);
-        $this->assertEquals('ideamart', $phone['platform']);
-        $this->assertEquals(0.018, $phone['value']);
-    }
-
     public function testJsonSerialization(): void
     {
         $phone = new PhoneNumber(
@@ -68,8 +46,8 @@ class PhoneNumberTest extends TestCase
 
     public function testImmutableMutationThrows(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(\Error::class);
         $phone = new PhoneNumber('0771234567', 'tel:94771234567', '94771234567', 'ideamart', 0.018);
-        $phone['capi_format'] = 'changed';
+        $phone->capiFormat = 'changed';
     }
 }

@@ -23,19 +23,4 @@ class OtpVerificationTokenTest extends TestCase
         $this->assertEquals($time, $token->createdAt);
         $this->assertEquals(['https://fail.example.com'], $token->failedUrls);
     }
-
-    public function testArrayAccessAndBackwardCompatibility(): void
-    {
-        $token = new OtpVerificationToken(
-            referenceNo: 'ref_123',
-            usedApiUrl: 'https://api.example.com',
-            platform: 'ideamart',
-            createdAt: time()
-        );
-
-        $this->assertTrue(isset($token['referenceNo']));
-        $this->assertTrue(isset($token['usedApiUrl']));
-        $this->assertEquals('ref_123', $token['referenceNo']);
-        $this->assertEquals('https://api.example.com', $token['usedApiUrl']);
-    }
 }

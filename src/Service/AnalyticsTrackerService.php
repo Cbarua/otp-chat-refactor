@@ -47,7 +47,7 @@ class AnalyticsTrackerService
      * @param Request $request
      * @param string $pageRoute e.g. '/' or '/otp' or '/thanks'
      * @param string $prefix e.g. 'pgview-' or 'pgview-otp-'
-     * @param PhoneNumber|array|null $phoneData
+     * @param PhoneNumber|null $phoneData
      * @param bool $logVisitToDb
      * @param bool $skipOnError If true and SessionKey::ERROR exists in session, skips CAPI event.
      * @param string|SessionKey|null $sessionKey Session key to store the event ID under. Defaults to SessionKey::PAGE_VIEW_ID.
@@ -57,7 +57,7 @@ class AnalyticsTrackerService
         Request $request,
         string $pageRoute,
         string $prefix = 'pgview-',
-        PhoneNumber|array|null $phoneData = null,
+        ?PhoneNumber $phoneData = null,
         bool $logVisitToDb = false,
         bool $skipOnError = false,
         string|SessionKey|null $sessionKey = null
@@ -74,7 +74,7 @@ class AnalyticsTrackerService
                 $this->getVisitorId(),
                 $userInfo['ip'],
                 $userInfo['useragent'],
-                $phoneData['capi_format'] ?? null
+                $phoneData?->capiFormat
             );
         }
 
@@ -92,7 +92,7 @@ class AnalyticsTrackerService
         // Generate event ID
         $pageViewEventId = $prefix . bin2hex(random_bytes(16));
 
-        $phoneForMatching = $phoneData['capi_format'] ?? $this->session->get(SessionKey::PHONE_DATA)['capi_format'] ?? null;
+        $phoneForMatching = $phoneData?->capiFormat ?? $this->session->get(SessionKey::PHONE_DATA)?->capiFormat;
         $visitorId = $this->getVisitorId();
 
         $capiParams = $this->capiService->processRequest($request);
@@ -141,11 +141,11 @@ class AnalyticsTrackerService
     /**
      * Logs a visit associated with a validated phone number and stores FB cookies in the session.
      */
-    public function logVisitWithPhone(Request $request, PhoneNumber|array $phoneData): void
+    public function logVisitWithPhone(Request $request, PhoneNumber $phoneData): void
     {
         $userInfo = $this->getUserInfo($request);
         $visitorId = $this->getVisitorId();
-        $phoneCapi = $phoneData['capi_format'] ?? null;
+        $phoneCapi = $phoneData->capiFormat;
 
         $this->userLogger->logVisit(
             $visitorId,
@@ -168,7 +168,7 @@ class AnalyticsTrackerService
     /**
      * Fires a Lead event via Facebook CAPI.
      */
-    public function trackLead(Request $request, PhoneNumber|array $phoneData, ?string $leadId = null): ?string
+    public function trackLead(Request $request, PhoneNumber $phoneData, ?string $leadId = null): ?string
     {
         if ($this->capiService === null) {
             return null;
@@ -177,7 +177,7 @@ class AnalyticsTrackerService
         $leadEventId = $leadId ?? ('lead-' . bin2hex(random_bytes(16)));
         $userInfo = $this->getUserInfo($request);
         $visitorId = $this->getVisitorId();
-        $phoneForMatching = $phoneData['capi_format'] ?? '';
+        $phoneForMatching = $phoneData->capiFormat;
 
         $fbp = $this->session->get(SessionKey::FBP);
         $fbc = $this->session->get(SessionKey::FBC);
@@ -197,7 +197,7 @@ class AnalyticsTrackerService
 
         $customData = [
             'currency' => 'USD',
-            'value' => (string) ($phoneData['value'] ?? '0.01'),
+            'value' => (string) $phoneData->value,
         ];
 
         $this->capiService->sendEvent(
@@ -219,7 +219,7 @@ class AnalyticsTrackerService
     /**
      * Fires a CompleteRegistration event via Facebook CAPI.
      */
-    public function trackCompleteRegistration(Request $request, PhoneNumber|array $phoneData, string $regId): ?string
+    public function trackCompleteRegistration(Request $request, PhoneNumber $phoneData, string $regId): ?string
     {
         if ($this->capiService === null) {
             return null;
@@ -227,7 +227,7 @@ class AnalyticsTrackerService
 
         $userInfo = $this->getUserInfo($request);
         $visitorId = $this->getVisitorId();
-        $phoneForMatching = $phoneData['capi_format'] ?? '';
+        $phoneForMatching = $phoneData->capiFormat;
 
         $fbp = $this->session->get(SessionKey::FBP);
         $fbc = $this->session->get(SessionKey::FBC);
@@ -247,7 +247,7 @@ class AnalyticsTrackerService
 
         $customData = [
             'currency' => 'USD',
-            'value' => (string) ($phoneData['value'] ?? '0.01'),
+            'value' => (string) $phoneData->value,
         ];
 
         $this->capiService->sendEvent(

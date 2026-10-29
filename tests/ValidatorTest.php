@@ -24,41 +24,41 @@ class ValidatorTest extends TestCase
         // Test a 'Dialog' number (Default range: 0.015 to 0.02)
         $phoneData = Validator::normalizePhone('0771234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('tel:94771234567', $phoneData['telco_format']);
-        $this->assertEquals('94771234567', $phoneData['capi_format']);
-        $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertGreaterThanOrEqual(0.015, $phoneData['value']);
-        $this->assertLessThanOrEqual(0.02, $phoneData['value']);
+        $this->assertEquals('tel:94771234567', $phoneData->telcoFormat);
+        $this->assertEquals('94771234567', $phoneData->capiFormat);
+        $this->assertEquals('ideamart', $phoneData->platform);
+        $this->assertGreaterThanOrEqual(0.015, $phoneData->value);
+        $this->assertLessThanOrEqual(0.02, $phoneData->value);
 
         // Test a 'Dialog' number starting with '7' (9 digits total)
         $phoneData = Validator::normalizePhone('771234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('tel:94771234567', $phoneData['telco_format']);
-        $this->assertEquals('94771234567', $phoneData['capi_format']);
-        $this->assertEquals('ideamart', $phoneData['platform']);
+        $this->assertEquals('tel:94771234567', $phoneData->telcoFormat);
+        $this->assertEquals('94771234567', $phoneData->capiFormat);
+        $this->assertEquals('ideamart', $phoneData->platform);
 
         // Test a 'Airtel' number (Default range: 0.015 to 0.02)
         $phoneData = Validator::normalizePhone('0751234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('tel:94751234567', $phoneData['telco_format']);
-        $this->assertEquals('94751234567', $phoneData['capi_format']);
-        $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertGreaterThanOrEqual(0.015, $phoneData['value']);
-        $this->assertLessThanOrEqual(0.02, $phoneData['value']);
+        $this->assertEquals('tel:94751234567', $phoneData->telcoFormat);
+        $this->assertEquals('94751234567', $phoneData->capiFormat);
+        $this->assertEquals('ideamart', $phoneData->platform);
+        $this->assertGreaterThanOrEqual(0.015, $phoneData->value);
+        $this->assertLessThanOrEqual(0.02, $phoneData->value);
 
         // Test a 'Mobitel' number (Mobitel range: 0.0 to 0.01)
         $phoneData = Validator::normalizePhone('0711234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('mspace', $phoneData['platform']);
-        $this->assertGreaterThanOrEqual(0.0, $phoneData['value']);
-        $this->assertLessThanOrEqual(0.01, $phoneData['value']);
+        $this->assertEquals('mspace', $phoneData->platform);
+        $this->assertGreaterThanOrEqual(0.0, $phoneData->value);
+        $this->assertLessThanOrEqual(0.01, $phoneData->value);
 
         // Test a 'Hutch' number (Hutch range: 0.01 to 0.015)
         $phoneData = Validator::normalizePhone('0781234567', $this->carrierConfig, 'LK', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('ideamart', $phoneData['platform']);
-        $this->assertGreaterThanOrEqual(0.01, $phoneData['value']);
-        $this->assertLessThanOrEqual(0.015, $phoneData['value']);
+        $this->assertEquals('ideamart', $phoneData->platform);
+        $this->assertGreaterThanOrEqual(0.01, $phoneData->value);
+        $this->assertLessThanOrEqual(0.015, $phoneData->value);
     }
 
     public function testInvalidSriLankanNumbers(): void
@@ -80,16 +80,16 @@ class ValidatorTest extends TestCase
         // Test a 'Airtel' number
         $phoneData = Validator::normalizePhone('01612345678', $this->carrierConfig, 'BD', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('tel:8801612345678', $phoneData['telco_format']);
-        $this->assertEquals('8801612345678', $phoneData['capi_format']);
-        $this->assertEquals('bdapps', $phoneData['platform']);
-        $this->assertEquals(0.01, $phoneData['value']);
+        $this->assertEquals('tel:8801612345678', $phoneData->telcoFormat);
+        $this->assertEquals('8801612345678', $phoneData->capiFormat);
+        $this->assertEquals('bdapps', $phoneData->platform);
+        $this->assertEquals(0.01, $phoneData->value);
 
         // Test a 'Robi' number
         $phoneData = Validator::normalizePhone('01812345678', $this->carrierConfig, 'BD', $this->loggerMock);
         $this->assertInstanceOf(\App\DTO\PhoneNumber::class, $phoneData);
-        $this->assertEquals('bdapps', $phoneData['platform']);
-        $this->assertEquals(0.01, $phoneData['value']);
+        $this->assertEquals('bdapps', $phoneData->platform);
+        $this->assertEquals(0.01, $phoneData->value);
     }
 
     public function testInvalidBangladeshNumbers(): void

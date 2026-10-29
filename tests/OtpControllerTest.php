@@ -309,7 +309,7 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Please try again with the new OTP sent to your phone.', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
-        $this->assertEquals('new-ref', $this->sessionData[SessionKey::OTP_TOKEN->value]['referenceNo']);
+        $this->assertEquals('new-ref', $this->sessionData[SessionKey::OTP_TOKEN->value]->referenceNo);
     }
 
     public function testHandleOtpFormRateLimitExceededFallbackFails(): void
@@ -424,7 +424,7 @@ class OtpControllerTest extends TestCase
         // "Your OTP expired..." message
         $this->assertStringContainsString('Your OTP expired', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
         // Token updated
-        $this->assertEquals('new-ref-123', $this->sessionData[SessionKey::OTP_TOKEN->value]['referenceNo']);
+        $this->assertEquals('new-ref-123', $this->sessionData[SessionKey::OTP_TOKEN->value]->referenceNo);
 
         // Reset invalid otp count and show sms link
         $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $this->sessionData);
@@ -692,7 +692,7 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp', $controller->redirectUrl);
         $this->assertEquals('Your OTP expired. A new OTP has been sent to your phone.', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
-        $this->assertEquals('new-ref-456', $this->sessionData[SessionKey::OTP_TOKEN->value]['referenceNo']);
+        $this->assertEquals('new-ref-456', $this->sessionData[SessionKey::OTP_TOKEN->value]->referenceNo);
     }
 
     /**************************************************************************************************************** */
@@ -792,9 +792,9 @@ class OtpControllerTest extends TestCase
 
         $this->assertEquals('otp', $this->controller->redirectUrl);
         $this->assertEquals('Please try again with the new OTP sent to your phone.', $this->sessionData[SessionKey::ERROR_MESSAGE->value]);
-        $this->assertEquals('new-ref', $this->sessionData[SessionKey::OTP_TOKEN->value]['referenceNo']);
+        $this->assertEquals('new-ref', $this->sessionData[SessionKey::OTP_TOKEN->value]->referenceNo);
         // Check if failedUrls are updated in new token
-        $this->assertEquals(['url0', 'url1', 'url2'], $this->sessionData[SessionKey::OTP_TOKEN->value]['failedUrls']);
+        $this->assertEquals(['url0', 'url1', 'url2'], $this->sessionData[SessionKey::OTP_TOKEN->value]->failedUrls);
 
         // reset invalid otp count and show sms link
         $this->assertArrayNotHasKey(SessionKey::INVALID_OTP_COUNT->value, $this->sessionData);

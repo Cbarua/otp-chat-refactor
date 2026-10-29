@@ -225,7 +225,7 @@ class OtpFlowServiceTest extends TestCase
         $this->otpServiceMock->expects($this->never())->method('getOtp');
         $this->analyticsTrackerMock->expects($this->once())
             ->method('logVisitWithPhone')
-            ->with($request, $this->callback(fn (PhoneNumber $p) => $p['capi_format'] === self::CAPI_PHONE));
+            ->with($request, $this->callback(fn (PhoneNumber $p) => $p->capiFormat === self::CAPI_PHONE));
         $this->loggerMock->expects($this->once())
             ->method('notice')
             ->with('Reusing existing valid OTP token', $this->callback(
@@ -244,7 +244,7 @@ class OtpFlowServiceTest extends TestCase
 
     public function testRequestOtpReusesRecentOtpVerificationTokenDto(): void
     {
-        // Production shape: OtpApiService stores the DTOs, so the reuse check takes the ArrayAccess branch.
+        // Production shape: the session holds what OtpApiService and Validator return.
         $token = new OtpVerificationToken('ref-123', self::PRIMARY_API_URL, 'ideamart', time() - 100);
         $_SESSION[SessionKey::OTP_TOKEN->value] = $token;
         $_SESSION[SessionKey::PHONE_DATA->value] = Validator::normalizePhone(self::RAW_PHONE, $this->carrierConfig);
@@ -305,7 +305,7 @@ class OtpFlowServiceTest extends TestCase
         $this->rateLimiterMock->expects($this->once())->method('increment')->with('phone_submission:127.0.0.1');
         $this->analyticsTrackerMock->expects($this->once())
             ->method('logVisitWithPhone')
-            ->with($request, $this->callback(fn (PhoneNumber $p) => $p['capi_format'] === self::CAPI_PHONE));
+            ->with($request, $this->callback(fn (PhoneNumber $p) => $p->capiFormat === self::CAPI_PHONE));
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', self::TELCO_PHONE, $this->callback(
@@ -341,7 +341,7 @@ class OtpFlowServiceTest extends TestCase
         $result = $this->service->requestOtp($this->phoneRequest('0711234567'), '0711234567');
 
         $this->assertTrue($result->isSuccess());
-        $this->assertSame('mspace', $_SESSION[SessionKey::PHONE_DATA->value]['platform']);
+        $this->assertSame('mspace', $_SESSION[SessionKey::PHONE_DATA->value]->platform);
         $this->assertSame($token, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 

@@ -125,6 +125,19 @@ class OtpFlowStateTest extends TestCase
         $this->assertSame($this->phone, $this->state->phone());
     }
 
+    public function testReadsValuesSerializedBeforeArrayAccessWasRemoved(): void
+    {
+        // Serialized while both classes still implemented ArrayAccess.
+        $_SESSION['otp_token'] = unserialize('O:28:"App\DTO\OtpVerificationToken":5:{s:11:"referenceNo";s:5:"ref-1";s:10:"usedApiUrl";s:16:"https://api/app1";s:8:"platform";s:8:"ideamart";s:9:"createdAt";i:1761700000;s:10:"failedUrls";a:1:{i:0;s:16:"https://api/app0";}}');
+        $_SESSION['phone_data'] = unserialize('O:19:"App\DTO\PhoneNumber":6:{s:9:"rawNumber";s:10:"0771234567";s:11:"telcoFormat";s:15:"tel:94771234567";s:10:"capiFormat";s:11:"94771234567";s:8:"platform";s:8:"ideamart";s:5:"value";d:0.01;s:7:"country";s:2:"LK";}');
+
+        $this->assertEquals(
+            new OtpVerificationToken('ref-1', 'https://api/app1', 'ideamart', 1761700000, ['https://api/app0']),
+            $this->state->token()
+        );
+        $this->assertEquals($this->phone, $this->state->phone());
+    }
+
     public function testValuesOfOtherTypesReadAsMissing(): void
     {
         $_SESSION['phone_data'] = ['capi_format' => '94771234567'];

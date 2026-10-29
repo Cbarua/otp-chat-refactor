@@ -139,15 +139,15 @@ class OtpApiService
     /**
      * Verifies an OTP with the app that issued the token.
      *
-     * @param array|\ArrayAccess $verificationToken The token from a successful getOtp call.
+     * @param OtpVerificationToken $verificationToken The token from a successful getOtp call.
      * @param string $otp The 6-digit user-provided OTP.
      * @return array 'outcome' (OtpVerifyOutcome) and the app's reply as 'originalResponse', or 'message' when the
      *               token is unusable.
      */
-    public function verifyOtp(array|\ArrayAccess $verificationToken, string $otp): array
+    public function verifyOtp(OtpVerificationToken $verificationToken, string $otp): array
     {
-        $baseUrl = $verificationToken['usedApiUrl'] ?? null;
-        $referenceNo = $verificationToken['referenceNo'] ?? null;
+        $baseUrl = $verificationToken->usedApiUrl;
+        $referenceNo = $verificationToken->referenceNo;
 
         if (!$baseUrl || !$referenceNo) {
             $this->logger->critical('Invalid verification token provided to verifyOtp.', ['token' => $verificationToken]);

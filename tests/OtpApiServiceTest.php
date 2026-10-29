@@ -2,6 +2,7 @@
 // tests/OtpApiServiceTest.php
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\SessionFixtures;
 use App\Enum\OtpRequestOutcome;
 use App\Enum\OtpVerifyOutcome;
 use App\Service\OtpApiService;
@@ -17,6 +18,8 @@ use PHPUnit\Framework\MockObject\MockObject;
 
 class OtpApiServiceTest extends TestCase
 {
+    use SessionFixtures;
+
     private MockObject|LoggerInterface $loggerMock;
     private array $apiConfig;
 
@@ -55,7 +58,7 @@ class OtpApiServiceTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
-        $this->assertEquals('12345-abc', $result['verificationToken']['referenceNo']);
+        $this->assertEquals('12345-abc', $result['verificationToken']->referenceNo);
     }
 
     public function testGetOtpFirstUrlFailsThenSecondSucceeds(): void
@@ -71,8 +74,8 @@ class OtpApiServiceTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
-        $this->assertEquals('67890-def', $result['verificationToken']['referenceNo']);
-        $this->assertEquals('https://ideamart.mock/fallback/', $result['verificationToken']['usedApiUrl']);
+        $this->assertEquals('67890-def', $result['verificationToken']->referenceNo);
+        $this->assertEquals('https://ideamart.mock/fallback/', $result['verificationToken']->usedApiUrl);
     }
 
     public function testGetOtpAllUrlsFail(): void
@@ -114,7 +117,7 @@ class OtpApiServiceTest extends TestCase
 
         $service = new OtpApiService($this->apiConfig, $this->loggerMock, $mockClient);
 
-        $token = ['referenceNo' => 'ref-999', 'usedApiUrl' => 'https://mspace.mock/'];
+        $token = self::token(referenceNo: 'ref-999', usedApiUrl: 'https://mspace.mock/');
         $result = $service->verifyOtp($token, '123456');
 
         $this->assertIsArray($result);
@@ -145,7 +148,7 @@ class OtpApiServiceTest extends TestCase
 
         $service = new OtpApiService($this->apiConfig, $this->loggerMock, $mockClient);
 
-        $token = ['referenceNo' => 'ref-999', 'usedApiUrl' => 'https://mspace.mock/'];
+        $token = self::token(referenceNo: 'ref-999', usedApiUrl: 'https://mspace.mock/');
         $result = $service->verifyOtp($token, '123456');
 
         $this->assertSame(OtpVerifyOutcome::PROVIDER_ERROR, $result['outcome']);
@@ -172,14 +175,14 @@ class OtpApiServiceTest extends TestCase
         $service = new OtpApiService($this->apiConfig, $this->loggerMock, $mockClient);
 
         // Test with missing URL
-        $result1 = $service->verifyOtp(['referenceNo' => 'ref-123'], '123456');
+        $result1 = $service->verifyOtp(self::token(referenceNo: 'ref-123'), '123456');
         $this->assertEquals([
             'outcome' => OtpVerifyOutcome::PROVIDER_ERROR,
             'message' => 'Invalid verification token.'
         ], $result1);
 
         // Test with missing reference number
-        $result2 = $service->verifyOtp(['usedApiUrl' => 'https://mspace.mock/'], '123456');
+        $result2 = $service->verifyOtp(self::token(usedApiUrl: 'https://mspace.mock/'), '123456');
         $this->assertEquals([
             'outcome' => OtpVerifyOutcome::PROVIDER_ERROR,
             'message' => 'Invalid verification token.'
@@ -211,8 +214,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('mspace', 'tel:94711234567', []);
 
         $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
-        $this->assertArrayHasKey('createdAt', $result['verificationToken']);
-        $this->assertIsInt($result['verificationToken']['createdAt']);
+        $this->assertIsInt($result['verificationToken']->createdAt);
     }
 
     public function testForwardsTestCookiesToTheProvider(): void
@@ -304,7 +306,7 @@ class OtpApiServiceTest extends TestCase
             new Response(200, [], json_encode($reply))
         ]));
 
-        $result = $service->verifyOtp(['referenceNo' => 'ref-1', 'usedApiUrl' => 'https://mspace.mock/'], '123456');
+        $result = $service->verifyOtp(self::token(referenceNo: 'ref-1', usedApiUrl: 'https://mspace.mock/'), '123456');
 
         $this->assertSame($expected, $result['outcome']);
         $this->assertSame($reply, $result['originalResponse']);
