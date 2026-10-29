@@ -13,7 +13,6 @@ enum SessionKey: string
     case ALREADY_REGISTERED = 'already_registered';
     case PAGE_VIEW_ID = 'page_view_id';
     case PAGE_VIEW_ID_OTP = 'page_view_id_otp';
-    case PAGE_VIEW_ID_THANK_YOU = 'page_view_id_thanks';
     case VISITOR_ID = 'visitor_id';
     case PHONE_DATA = 'phone_data';
     case FBP = 'fbp';

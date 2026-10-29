@@ -70,7 +70,7 @@ class AnalyticsTrackerService
             $request,
             '/thanks',
             'pgview-thanks-',
-            SessionKey::PAGE_VIEW_ID_THANK_YOU,
+            null,
             $phone,
             skipOnError: false
         );
@@ -120,7 +120,7 @@ class AnalyticsTrackerService
     }
 
     /**
-     * Logs the page visit and sends a PageView, storing its id under $sessionKey.
+     * Logs the page visit and sends a PageView, storing its id under $sessionKey when one is given.
      *
      * @return string|null The PageView event ID, or null if none was sent.
      */
@@ -128,7 +128,7 @@ class AnalyticsTrackerService
         Request $request,
         string $pageRoute,
         string $prefix,
-        SessionKey $sessionKey,
+        ?SessionKey $sessionKey,
         ?PhoneNumber $phone,
         bool $logVisitToDb = false,
         bool $skipOnError = true
@@ -174,7 +174,9 @@ class AnalyticsTrackerService
             $this->userData($request, $capiParams, $phone)
         );
 
-        $this->session->set($sessionKey, $pageViewEventId);
+        if ($sessionKey !== null) {
+            $this->session->set($sessionKey, $pageViewEventId);
+        }
 
         $this->logger->info("New PageView triggered. {$pageRoute}", [
             'page_view_id' => $pageViewEventId,

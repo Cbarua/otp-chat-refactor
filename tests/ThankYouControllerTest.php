@@ -176,7 +176,8 @@ class ThankYouControllerTest extends TestCase
                 'country' => 'lk',
             ], ['currency' => 'USD', 'value' => '5']],
         ], $events);
-        $this->assertSame($pageViewId, $this->sessionData['page_view_id_thanks']);
+        // Only an error re-render reads a stored PageView id, and the thank-you page never skips.
+        $this->assertArrayNotHasKey('page_view_id_thanks', $this->sessionData);
         $this->assertTrackingVariables([
             'pixelId' => 'fb-pixel-123',
             'externalId' => 'v_test123',
