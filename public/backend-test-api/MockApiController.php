@@ -118,7 +118,7 @@ class MockApiController
         } else {
             $this->sendResponse(200, [
                 'status' => 'Invalid OTP',
-                'statusCode' => 'E1001',
+                'statusCode' => 'E1850',
                 'statusDetail' => 'Invalid OTP'
             ]);
         }

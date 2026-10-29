@@ -15,7 +15,6 @@ description: Coding standards and architecture guidelines for the OTP Chat Refac
 - **Dependency Injection (DI)**:
   - Use the Pimple DI container configured in `bootstrap/app.php`.
   - Do NOT instantiate service objects or database connections directly inside controllers or services. Always inject dependencies via constructors.
-  - Interface abstraction: Use interfaces for pluggable services (e.g., `OtpApiInterface`) to ensure mockability and modularity.
 
 ## 2. PHP 8.4+ & Type Safety
 
@@ -23,7 +22,7 @@ description: Coding standards and architecture guidelines for the OTP Chat Refac
   - Always use explicit type declarations for all method arguments, property definitions, and return types.
   - Utilize modern PHP features: constructor property promotion, union types (`int|string`), nullable types (`?string`), and `match` expressions where appropriate.
 - **Naming Conventions**:
-  - **Classes & Interfaces**: `PascalCase` (e.g., `OtpApiService`, `OtpApiInterface`).
+  - **Classes & Interfaces**: `PascalCase` (e.g., `OtpApiService`, `SessionService`).
   - **Methods & Variables**: `camelCase` (e.g., `normalizePhone`, `$visitorId`).
   - **Constants**: `SCREAMING_SNAKE_CASE` (e.g., `SESSION_KEY`).
   - **Config keys / Database columns**: `snake_case` (e.g., `capi_token`, `created_at`).

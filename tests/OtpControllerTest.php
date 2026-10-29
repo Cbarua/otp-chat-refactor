@@ -6,8 +6,10 @@ namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
 use App\Controller\OtpController;
+use App\Enum\OtpRequestOutcome;
+use App\Enum\OtpVerifyOutcome;
 use App\Service\FacebookCapiService;
-use App\Service\OtpApiInterface;
+use App\Service\OtpApiService;
 use App\Service\SessionService;
 use App\Service\UserInfoService;
 use App\Service\CsrfService;
@@ -47,7 +49,7 @@ class OtpControllerTest extends TestCase
 {
     private TestableOtpController $controller;
     private array $config;
-    private MockObject|OtpApiInterface $otpServiceMock;
+    private MockObject|OtpApiService $otpServiceMock;
     private MockObject|FacebookCapiService $capiServiceMock;
     private MockObject|LoggerInterface $loggerMock;
     private MockObject|UserInfoService $userInfoServiceMock;
@@ -78,7 +80,7 @@ class OtpControllerTest extends TestCase
             'sms' => ['number' => '77000', 'keyword' => 'chat']
         ];
 
-        $this->otpServiceMock = $this->createMock(OtpApiInterface::class);
+        $this->otpServiceMock = $this->createMock(OtpApiService::class);
         $this->capiServiceMock = $this->createMock(FacebookCapiService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
         $this->userInfoServiceMock = $this->createMock(UserInfoService::class);
@@ -288,7 +290,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url1'])
-            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref'], 'usedApiUrl' => 'url2']);
+            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => ['referenceNo' => 'new-ref'], 'usedApiUrl' => 'url2']);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -315,7 +317,7 @@ class OtpControllerTest extends TestCase
         // Fallback also fails
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
-            ->willReturn(['status' => 'error']);
+            ->willReturn(['outcome' => OtpRequestOutcome::FAILED]);
 
         $this->controller->handleOtpForm($request);
 
@@ -356,7 +358,7 @@ class OtpControllerTest extends TestCase
 
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
-            ->willReturn(['status' => OtpController::OTP_INVALID]);
+            ->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $this->controller->handleOtpForm($request);
 
@@ -390,14 +392,14 @@ class OtpControllerTest extends TestCase
         // 1. Verify fails with EXPIRED status
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
-            ->willReturn(['status' => OtpController::OTP_STATUS_EXPIRED]);
+            ->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
 
         // 2. Expect re-request (with empty failedUrls because we don't exclude on expiry)
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), [])
             ->willReturn([
-                'status' => 'success',
+                'outcome' => OtpRequestOutcome::SENT,
                 'verificationToken' => [
                     'referenceNo' => 'new-ref-123',
                     'usedApiUrl' => 'url1',
@@ -433,7 +435,7 @@ class OtpControllerTest extends TestCase
 
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
 
@@ -458,8 +460,8 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
+        $this->otpServiceMock->method('getOtp')->willReturn(['outcome' => OtpRequestOutcome::FAILED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
 
@@ -486,9 +488,9 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
         $this->otpServiceMock->method('getOtp')->willReturn([
-            'status' => 'success',
+            'outcome' => OtpRequestOutcome::SENT,
             'verificationToken' => [
                 'referenceNo' => 'new-ref-fallback',
                 'usedApiUrl' => 'url2',
@@ -500,7 +502,6 @@ class OtpControllerTest extends TestCase
         $this->controller->handleOtpForm($request);
         $this->assertEquals('otp', $this->controller->redirectUrl);
     }
-
 
     public function testHandleOtpFormVerificationFailsInvalidOtpIncrementsCountWhenSmsLinkIsSetup(): void
     {
@@ -515,7 +516,7 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_INVALID]);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $this->controller->handleOtpForm($request);
 
@@ -535,7 +536,7 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_INVALID]);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $this->controller->handleOtpForm($request);
 
@@ -554,7 +555,7 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_NOT_FOUND]);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
 
         $this->controller->handleOtpForm($request);
 
@@ -598,7 +599,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
 
@@ -661,9 +662,9 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_NOT_FOUND]);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
         $this->otpServiceMock->method('getOtp')->willReturn([
-            'status' => 'success',
+            'outcome' => OtpRequestOutcome::SENT,
             'verificationToken' => [
                 'referenceNo' => 'new-ref-456',
                 'usedApiUrl' => self::PRIMARY_API_URL,
@@ -693,7 +694,7 @@ class OtpControllerTest extends TestCase
         $this->rateLimiterMock->method('check')->willReturn(true);
 
         // Status success but subscription status is NOT registered/pending
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'FAILED']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_SUBSCRIBED]);
 
         $this->controller->handleOtpForm($request);
 
@@ -718,7 +719,7 @@ class OtpControllerTest extends TestCase
         $this->otpServiceMock->expects($this->once())
             ->method('verifyOtp')
             ->with(['referenceNo' => 'test-ref-123', 'platform' => 'ideamart'], '123456')
-            ->willReturn(['status' => OtpController::OTP_SUCCESS, 'subscriptionStatus' => OtpController::SUB_STATUS_PENDING]);
+            ->willReturn(['outcome' => OtpVerifyOutcome::VERIFIED]);
 
         $this->controller->handleOtpForm($request);
 
@@ -741,7 +742,7 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
 
         $this->controller->handleOtpForm($request);
 
@@ -761,14 +762,14 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
 
         // Fallback succeeds
         // Expect failedUrls to include url0, url1, and url2
         $this->otpServiceMock->expects($this->once())
             ->method('getOtp')
             ->with('ideamart', 'tel:123', $this->anything(), ['url0', 'url1', 'url2'])
-            ->willReturn(['status' => 'success', 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
+            ->willReturn(['outcome' => OtpRequestOutcome::SENT, 'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url3']]);
 
         // Expect rate limit clear
         $this->rateLimiterMock->expects($this->once())->method('clear');
@@ -798,10 +799,10 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
 
         // Fallback fails
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('getOtp')->willReturn(['outcome' => OtpRequestOutcome::FAILED]);
 
         $this->controller->handleOtpForm($request);
 
@@ -905,7 +906,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'REGISTERED']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::VERIFIED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -923,7 +924,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'platform' => 'ideamart'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'success', 'subscriptionStatus' => 'UNKNOWN']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_SUBSCRIBED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -941,7 +942,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -958,7 +959,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Could not find OTP']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1008,7 +1009,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'Invalid OTP']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1070,9 +1071,9 @@ class OtpControllerTest extends TestCase
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
 
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => OtpController::OTP_NOT_FOUND]);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::NOT_FOUND]);
         $this->otpServiceMock->method('getOtp')->willReturn([
-            'status' => 'success',
+            'outcome' => OtpRequestOutcome::SENT,
             'verificationToken' => [
                 'referenceNo' => 'new-ref-456',
                 'usedApiUrl' => self::PRIMARY_API_URL,
@@ -1095,7 +1096,7 @@ class OtpControllerTest extends TestCase
         $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref'];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1115,9 +1116,9 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
         $this->otpServiceMock->method('getOtp')->willReturn([
-            'status' => 'success',
+            'outcome' => OtpRequestOutcome::SENT,
             'verificationToken' => ['referenceNo' => 'new-ref', 'usedApiUrl' => 'url2']
         ]);
 
@@ -1139,8 +1140,8 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'error']);
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
+        $this->otpServiceMock->method('getOtp')->willReturn(['outcome' => OtpRequestOutcome::FAILED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1162,7 +1163,7 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1191,8 +1192,8 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
-        $this->otpServiceMock->method('getOtp')->willReturn(['status' => 'error']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
+        $this->otpServiceMock->method('getOtp')->willReturn(['outcome' => OtpRequestOutcome::FAILED]);
 
         $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
         $request->headers->set('X-Requested-With', 'XMLHttpRequest');
@@ -1221,9 +1222,9 @@ class OtpControllerTest extends TestCase
         ];
         $this->csrfServiceMock->method('validate')->willReturn(true);
         $this->rateLimiterMock->method('check')->willReturn(true);
-        $this->otpServiceMock->method('verifyOtp')->willReturn(['status' => 'OTP request has being expired']);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
         $this->otpServiceMock->method('getOtp')->willReturn([
-            'status' => 'success',
+            'outcome' => OtpRequestOutcome::SENT,
             'verificationToken' => [
                 'referenceNo' => 'new-ref-123',
                 'usedApiUrl' => 'url1',

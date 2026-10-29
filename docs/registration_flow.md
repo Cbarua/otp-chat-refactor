@@ -75,21 +75,22 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   Checks if an `otp_token` exists in session for the same phone number created less than **5 minutes (300s)** ago.
     *   If valid, reuses the existing token without making redundant external API requests.
 *   **API Execution**: Calls `OtpApiService::getOtp($platform, $telcoFormat, $metaData)`.
-*   **Outcome Handling**:
-    *   **Success (`status: success`)**:
+*   **Outcome Handling** (by `OtpRequestOutcome`, which `OtpApiService` maps from the last app's `statusCode`):
+    *   **`SENT` (S1000)**:
         *   Stores opaque `verificationToken` as `SESSION_OTP_TOKEN`.
         *   Generates `SESSION_LEAD_ID` (`lead-xxxx`) for tracking.
         *   Redirects to `/otp` (HTML) or returns `{"status": "success", "redirect": "otp"}` (AJAX).
-    *   **Already Registered (`user already registered`)**:
-        *   Logs notice detailing which app services user is registered on.
-        *   Sets `SESSION_ALREADY_REGISTERED` and redirects to `/` or returns JSON error.
-    *   **Temporary System Failure (`temporary system error`)**:
+    *   **`ALREADY_REGISTERED` (E1351)**:
+        *   Logs notice detailing which app services user is registered on (`alreadyRegisteredUrls` from `OtpApiService`).
+        *   Sets `SESSION_ALREADY_REGISTERED` and redirects to `/`, or returns a JSON error whose message is `user already registered` (`phone-form.js` matches that text).
+    *   **`TEMPORARY_FAILURE` (E1603)**:
         *   If SMS fallback is configured (`sms.number` & `sms.keyword`), sets `SESSION_SHOW_SMS_LINK = true` and a dummy `SESSION_OTP_TOKEN`, then redirects to `/otp`.
         *   Otherwise, sets `ERROR_GENERIC` and redirects to `/`.
-    *   **Maximum OTP Requests Reached (`maximum number of otp requests reached`)**:
+    *   **`MAX_REQUESTS` (E1853)**:
         *   Blocks phone number for 3600 seconds (`otp_max_requests:{phone}`).
         *   If SMS config present, sets `SESSION_SHOW_SMS_LINK = true` and redirects to `/otp`.
         *   Otherwise, sets formatted error message and redirects to `/`.
+    *   **`FAILED` (any other code, e.g. E1342 blacklisted, or no reply)**: logs an ERROR, sets `ERROR_GENERIC` and redirects to `/`.
 
 ---
 
@@ -117,23 +118,23 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     2.  **Session Security** (controller): Verifies `SESSION_OTP_TOKEN` exists and is an array or `ArrayAccess` token (the SMS-fallback sentinel `true` is rejected).
     3.  **Rate Limiting**: Checks `otp_verification:{visitorId}` via `RateLimiterService` (limit: **5 attempts per 10 minutes**). If exceeded, triggers `handleFailedVerification`.
     4.  **Format Validation**: Verifies OTP is exactly 6 numeric digits via `Validator::validateOtp`.
-*   **API Verification**: Calls `OtpApiInterface::verifyOtp($token, $rawOtp)`.
-*   **Outcome Handling (`handleVerificationResponse`)**:
-    *   **Success (`OTP_SUCCESS`)**:
-        *   Checks subscription status (`REGISTERED`, `INITIAL CHARGING PENDING`, or mspace's `INITIAL_CHARGING_PENDING`; any other status logs CRITICAL "Registration failed. Unexpected Subscription Status" and stays on `/otp`).
+*   **API Verification**: Calls `OtpApiService::verifyOtp($token, $rawOtp)`.
+*   **Outcome Handling (`handleVerificationResponse`, by `OtpVerifyOutcome`)**:
+    *   **`VERIFIED` (S1000 with subscription status `REGISTERED`, `INITIAL CHARGING PENDING` or mspace's `INITIAL_CHARGING_PENDING`)**:
         *   Generates `SESSION_REG_ID` (`reg-xxxx`).
         *   Clears `SESSION_INVALID_OTP_COUNT` and `SESSION_SHOW_SMS_LINK`.
         *   Redirects to `/thanks` or returns `{"status": "success", "redirect": "thanks"}`.
-    *   **Expired Token (`OTP_STATUS_EXPIRED`)**:
+    *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", sets `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
+    *   **`EXPIRED` (E1851)**:
         *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again (apps that already failed are not excluded).
         *   Sets `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and updates `SESSION_OTP_TOKEN`.
-    *   **Invalid OTP (`OTP_INVALID`)**:
+    *   **`INVALID` (E1850)**:
         *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` to reveal the SMS link, otherwise sets `ERROR_OTP_INVALID`.
         *   Without SMS config: sets `ERROR_OTP_INVALID` (no counter).
-    *   **OTP Not Found (`OTP_NOT_FOUND`)**:
+    *   **`NOT_FOUND` (E1854)**:
         *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and returns SMS fallback link.
         *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
-    *   **Platform API Error**: Invokes `handleFailedVerification()` for an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
+    *   **`PROVIDER_ERROR` (any other code, e.g. E1852 attempts exhausted, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
 
 ---
 
@@ -177,7 +178,7 @@ The OTP flow module. Two public methods, one per step, both returning `App\DTO\O
 Both write the session state for the next step and the HTML flash message; they never read cookies or produce HTTP responses.
 
 ### 1. `App\Service\OtpApiService`
-Interface (`OtpApiInterface`) to the platforms' apps:
+The only class that reads the platforms' replies. It maps each reply's `statusCode` (and, on verify, `subscriptionStatus`) to `App\Enum\OtpRequestOutcome` / `OtpVerifyOutcome`; the codes mean the same on all three platforms (`docs/provider_status_codes.md`):
 *   `getOtp($platform, $subscriberId, $metaData, $failedUrls)`: Walks the platform's apps in order (app fallback), skipping `$failedUrls`, and returns an opaque OTP token.
 *   `verifyOtp($verificationToken, $otp)`: Uses token metadata (`usedApiUrl`, `referenceNo`) to target the app that issued the OTP.
 

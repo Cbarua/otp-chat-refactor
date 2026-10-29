@@ -4,7 +4,6 @@
 use PHPUnit\Framework\TestCase;
 use App\Service\SessionService;
 use App\Enum\SessionKey;
-use App\Enum\ApiStatus;
 
 class SessionServiceTest extends TestCase
 {
@@ -60,14 +59,5 @@ class SessionServiceTest extends TestCase
         $all = $this->session->all();
         $this->assertEquals(1, $all['a']);
         $this->assertEquals('v_123', $all['visitor_id']);
-    }
-
-    public function testApiStatusEnumValues(): void
-    {
-        $this->assertEquals('success', ApiStatus::SUCCESS->value);
-        $this->assertEquals('error', ApiStatus::ERROR->value);
-        $this->assertEquals('user already registered', ApiStatus::ALREADY_REGISTERED->value);
-        $this->assertEquals('temporary system error', ApiStatus::TEMPORARY_FAILURE->value);
-        $this->assertEquals('maximum number of otp requests reached', ApiStatus::MAX_REQUESTS_REACHED->value);
     }
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Enum\ApiStatus;
 use App\Enum\SessionKey;
 use App\Service\AnalyticsTrackerService;
 use App\Service\CsrfService;
@@ -28,14 +27,6 @@ class OtpController extends BaseController
     public const SESSION_LEAD_ID = SessionKey::LEAD_ID->value;
     public const SESSION_INVALID_OTP_COUNT = SessionKey::INVALID_OTP_COUNT->value;
     public const SESSION_SHOW_SMS_LINK = SessionKey::SHOW_SMS_LINK->value;
-
-    // API Statuses
-    public const OTP_SUCCESS = ApiStatus::SUCCESS->value;
-    public const OTP_INVALID = OtpFlowService::OTP_INVALID;
-    public const OTP_NOT_FOUND = OtpFlowService::OTP_NOT_FOUND;
-    public const OTP_STATUS_EXPIRED = OtpFlowService::OTP_STATUS_EXPIRED;
-    public const SUB_STATUS_PENDING = OtpFlowService::SUB_STATUS_PENDING;
-    public const SUB_STATUS_REGISTERED = OtpFlowService::SUB_STATUS_REGISTERED;
 
     // Error Messages
     private const ERROR_CSRF = OtpFlowService::ERROR_CSRF;

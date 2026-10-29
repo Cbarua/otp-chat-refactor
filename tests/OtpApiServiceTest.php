@@ -2,6 +2,8 @@
 // tests/OtpApiServiceTest.php
 
 use PHPUnit\Framework\TestCase;
+use App\Enum\OtpRequestOutcome;
+use App\Enum\OtpVerifyOutcome;
 use App\Service\OtpApiService;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
@@ -10,6 +12,7 @@ use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Psr7\Request;
 use Psr\Log\LoggerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 
 class OtpApiServiceTest extends TestCase
@@ -51,7 +54,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('mspace', 'tel:94711234567', []);
 
         $this->assertIsArray($result);
-        $this->assertEquals('success', $result['status']);
+        $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
         $this->assertEquals('12345-abc', $result['verificationToken']['referenceNo']);
     }
 
@@ -67,7 +70,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('ideamart', 'tel:94771234567', []);
 
         $this->assertIsArray($result);
-        $this->assertEquals('success', $result['status']);
+        $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
         $this->assertEquals('67890-def', $result['verificationToken']['referenceNo']);
         $this->assertEquals('https://ideamart.mock/fallback/', $result['verificationToken']['usedApiUrl']);
     }
@@ -83,7 +86,7 @@ class OtpApiServiceTest extends TestCase
 
         $result = $service->getOtp('ideamart', 'tel:94771234567', []);
 
-        $this->assertEquals('error', $result['status']);
+        $this->assertSame(OtpRequestOutcome::FAILED, $result['outcome']);
         // first api call failed
         $this->assertEquals('API request failed', $result['failedAttempts'][0]['response']['message']);
         // second api call failed
@@ -98,7 +101,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('unconfigured', 'tel:94771234567', []);
 
         $this->assertEquals([
-            'status' => 'error',
+            'outcome' => OtpRequestOutcome::FAILED,
             'message' => 'Url not found for platform.'
         ], $result);
     }
@@ -106,7 +109,7 @@ class OtpApiServiceTest extends TestCase
     public function testVerifyOtpSuccess(): void
     {
         $mockClient = $this->createMockClient([
-            new Response(200, [], json_encode(['status' => 'success', 'subscriptionStatus' => 'REGISTERED']))
+            new Response(200, [], json_encode(['statusCode' => 'S1000', 'subscriptionStatus' => 'REGISTERED']))
         ]);
 
         $service = new OtpApiService($this->apiConfig, $this->loggerMock, $mockClient);
@@ -115,8 +118,8 @@ class OtpApiServiceTest extends TestCase
         $result = $service->verifyOtp($token, '123456');
 
         $this->assertIsArray($result);
-        $this->assertEquals('success', $result['status']);
-        $this->assertEquals('REGISTERED', $result['subscriptionStatus']);
+        $this->assertSame(OtpVerifyOutcome::VERIFIED, $result['outcome']);
+        $this->assertEquals('REGISTERED', $result['originalResponse']['subscriptionStatus']);
     }
 
     public function testRequestReturnsInvalidJson(): void
@@ -130,7 +133,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('mspace', 'tel:94771234567', []);
 
         // The service returns the last response structure, which in this case is the error from sendRequest
-        $this->assertEquals('error', $result['status']);
+        $this->assertSame(OtpRequestOutcome::FAILED, $result['outcome']);
         $this->assertEquals('Invalid JSON response from API', $result['finalResponse']['message']);
     }
 
@@ -145,7 +148,7 @@ class OtpApiServiceTest extends TestCase
         $token = ['referenceNo' => 'ref-999', 'usedApiUrl' => 'https://mspace.mock/'];
         $result = $service->verifyOtp($token, '123456');
 
-        $this->assertEquals('error', $result['status']);
+        $this->assertSame(OtpVerifyOutcome::PROVIDER_ERROR, $result['outcome']);
         $this->assertEquals('API request failed', $result['originalResponse']['message']);
     }
 
@@ -158,7 +161,7 @@ class OtpApiServiceTest extends TestCase
         $result = $service->getOtp('ideamart', 'tel:94771234567', [], $excludedUrls);
 
         $this->assertEquals([
-            'status' => 'error',
+            'outcome' => OtpRequestOutcome::FAILED,
             'message' => 'No available API endpoints to try.'
         ], $result);
     }
@@ -171,14 +174,14 @@ class OtpApiServiceTest extends TestCase
         // Test with missing URL
         $result1 = $service->verifyOtp(['referenceNo' => 'ref-123'], '123456');
         $this->assertEquals([
-            'status' => 'error',
+            'outcome' => OtpVerifyOutcome::PROVIDER_ERROR,
             'message' => 'Invalid verification token.'
         ], $result1);
 
         // Test with missing reference number
         $result2 = $service->verifyOtp(['usedApiUrl' => 'https://mspace.mock/'], '123456');
         $this->assertEquals([
-            'status' => 'error',
+            'outcome' => OtpVerifyOutcome::PROVIDER_ERROR,
             'message' => 'Invalid verification token.'
         ], $result2);
     }
@@ -193,7 +196,7 @@ class OtpApiServiceTest extends TestCase
 
         $result = $service->getOtp('mspace', 'tel:94771234567', []);
 
-        $this->assertEquals('error', $result['status']);
+        $this->assertSame(OtpRequestOutcome::FAILED, $result['outcome']);
         $this->assertEquals('A system error occurred', $result['finalResponse']['message']);
     }
 
@@ -207,7 +210,7 @@ class OtpApiServiceTest extends TestCase
 
         $result = $service->getOtp('mspace', 'tel:94711234567', []);
 
-        $this->assertEquals('success', $result['status']);
+        $this->assertSame(OtpRequestOutcome::SENT, $result['outcome']);
         $this->assertArrayHasKey('createdAt', $result['verificationToken']);
         $this->assertIsInt($result['verificationToken']['createdAt']);
     }
@@ -234,5 +237,76 @@ class OtpApiServiceTest extends TestCase
         unset($_COOKIE['TEST_LOG_DIR']);
 
         $this->assertFalse($handler->getLastRequest()->hasHeader('Cookie'));
+    }
+
+    public static function requestOutcomeProvider(): array
+    {
+        // Final replies as production logged them; mapped by statusCode, never by statusDetail.
+        return [
+            'already registered' => [['statusCode' => 'E1351', 'statusDetail' => 'user already registered'], OtpRequestOutcome::ALREADY_REGISTERED],
+            'temporary failure' => [['statusCode' => 'E1603', 'statusDetail' => 'Temporary System Error occurred while delivering your request.'], OtpRequestOutcome::TEMPORARY_FAILURE],
+            'max requests' => [['statusCode' => 'E1853', 'statusDetail' => 'Maximum number of OTP requests reached for [app/tel:94771234567]'], OtpRequestOutcome::MAX_REQUESTS],
+            'blacklisted' => [['statusCode' => 'E1342', 'statusDetail' => 'Sorry, Your phone number is blacklisted to use this application app.'], OtpRequestOutcome::FAILED],
+            'middle-layer error' => [['status' => 'error', 'statusCode' => 'E1000', 'statusDetail' => 'Missing fields in telco response'], OtpRequestOutcome::FAILED],
+            'prose without a code' => [['statusDetail' => 'user already registered'], OtpRequestOutcome::FAILED],
+        ];
+    }
+
+    #[DataProvider('requestOutcomeProvider')]
+    public function testGetOtpMapsTheFinalStatusCode(array $reply, OtpRequestOutcome $expected): void
+    {
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $this->createMockClient([
+            new Response(200, [], json_encode($reply))
+        ]));
+
+        $result = $service->getOtp('mspace', 'tel:94711234567', []);
+
+        $this->assertSame($expected, $result['outcome']);
+        $this->assertSame('https://mspace.mock/', $result['finalUrl']);
+    }
+
+    public function testGetOtpListsTheAppsThatSaidAlreadyRegistered(): void
+    {
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $this->createMockClient([
+            new Response(200, [], json_encode(['statusCode' => 'E1342', 'statusDetail' => 'Sorry, Your phone number is blacklisted'])),
+            new Response(200, [], json_encode(['statusCode' => 'E1351', 'statusDetail' => 'user already registered'])),
+        ]));
+
+        $result = $service->getOtp('ideamart', 'tel:94771234567', []);
+
+        $this->assertSame(OtpRequestOutcome::ALREADY_REGISTERED, $result['outcome']);
+        $this->assertSame(['https://ideamart.mock/fallback/'], $result['alreadyRegisteredUrls']);
+        $this->assertCount(2, $result['failedAttempts']);
+    }
+
+    public static function verifyOutcomeProvider(): array
+    {
+        return [
+            'registered' => [['statusCode' => 'S1000', 'subscriptionStatus' => 'REGISTERED'], OtpVerifyOutcome::VERIFIED],
+            'ideamart pending charge' => [['statusCode' => 'S1000', 'subscriptionStatus' => 'INITIAL CHARGING PENDING'], OtpVerifyOutcome::VERIFIED],
+            'mspace pending charge' => [['statusCode' => 'S1000', 'subscriptionStatus' => 'INITIAL_CHARGING_PENDING'], OtpVerifyOutcome::VERIFIED],
+            'mspace reg pending' => [['statusCode' => 'S1000', 'subscriptionStatus' => 'REG_PENDING'], OtpVerifyOutcome::NOT_SUBSCRIBED],
+            'no subscription status' => [['statusCode' => 'S1000'], OtpVerifyOutcome::NOT_SUBSCRIBED],
+            'invalid' => [['status' => 'Invalid OTP', 'statusCode' => 'E1850', 'statusDetail' => 'Invalid OTP'], OtpVerifyOutcome::INVALID],
+            'not found' => [['status' => 'Could not find OTP', 'statusCode' => 'E1854', 'statusDetail' => 'Could not find OTP'], OtpVerifyOutcome::NOT_FOUND],
+            'expired' => [['status' => 'OTP request has being expired', 'statusCode' => 'E1851', 'statusDetail' => 'OTP request has being expired'], OtpVerifyOutcome::EXPIRED],
+            'attempts exhausted' => [['statusCode' => 'E1852', 'statusDetail' => 'Maximum number of OTP attempts had reached'], OtpVerifyOutcome::PROVIDER_ERROR],
+            'request limit code on verify' => [['statusCode' => 'E1853'], OtpVerifyOutcome::PROVIDER_ERROR],
+            'middle-layer error' => [['status' => 'error', 'statusCode' => 'E500', 'statusDetail' => 'Internal Error'], OtpVerifyOutcome::PROVIDER_ERROR],
+            'success status without a code' => [['status' => 'success', 'subscriptionStatus' => 'REGISTERED'], OtpVerifyOutcome::PROVIDER_ERROR],
+        ];
+    }
+
+    #[DataProvider('verifyOutcomeProvider')]
+    public function testVerifyOtpMapsStatusCodeAndSubscriptionStatus(array $reply, OtpVerifyOutcome $expected): void
+    {
+        $service = new OtpApiService($this->apiConfig, $this->loggerMock, $this->createMockClient([
+            new Response(200, [], json_encode($reply))
+        ]));
+
+        $result = $service->verifyOtp(['referenceNo' => 'ref-1', 'usedApiUrl' => 'https://mspace.mock/'], '123456');
+
+        $this->assertSame($expected, $result['outcome']);
+        $this->assertSame($reply, $result['originalResponse']);
     }
 }

@@ -7,7 +7,8 @@ namespace App\Service;
 use App\DTO\OtpFlowResult;
 use App\DTO\OtpVerificationToken;
 use App\DTO\PhoneNumber;
-use App\Enum\ApiStatus;
+use App\Enum\OtpRequestOutcome;
+use App\Enum\OtpVerifyOutcome;
 use App\Enum\SessionKey;
 use App\Utils\Validator;
 use Psr\Log\LoggerInterface;
@@ -23,17 +24,10 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class OtpFlowService
 {
-    // API Statuses
-    public const OTP_SUCCESS = ApiStatus::SUCCESS->value;
-    public const OTP_INVALID = 'Invalid OTP';
-    public const OTP_NOT_FOUND = 'Could not find OTP';
-    public const OTP_STATUS_EXPIRED = 'OTP request has being expired';
-    public const SUB_STATUS_PENDING = 'INITIAL CHARGING PENDING';
-    public const SUB_STATUS_PENDING_MSPACE = 'INITIAL_CHARGING_PENDING'; // mspace spells it with underscores
-    public const SUB_STATUS_REGISTERED = 'REGISTERED';
-
     // Error Messages
     public const ALREADY_REGISTERED = 'You are already registered!';
+    // The XHR message for an already registered number; public/assets/js/phone-form.js matches this exact text.
+    public const ALREADY_REGISTERED_XHR = 'user already registered';
     public const ERROR_INVALID_PHONE = 'Invalid phone number. Example: 0771234567';
     public const ERROR_MAX_REQUESTS = 'Maximum number of OTP requests reached for :number. Please try again in :minutes minutes';
     public const ERROR_RATE_LIMIT = 'Too many attempts. Please try again later.';
@@ -48,7 +42,7 @@ class OtpFlowService
     public function __construct(
         private array $config,
         private array $carrierConfig,
-        private OtpApiInterface $otpService,
+        private OtpApiService $otpService,
         private AnalyticsTrackerService $analyticsTracker,
         private LoggerInterface $logger,
         private SessionService $session,
@@ -136,8 +130,9 @@ class OtpFlowService
      */
     private function handleOtpApiResponse(string $rawPhone, array $response, PhoneNumber|array $phoneData): OtpFlowResult
     {
-        // Success condition is based on the 'status' key from our service
-        if (($response['status'] ?? null) === 'success') {
+        $outcome = $response['outcome'];
+
+        if ($outcome === OtpRequestOutcome::SENT) {
             // SUCCESS: OTP was requested.
             $this->session->set(SessionKey::LEAD_ID, $this->generateRandomId('lead-'));
             $this->session->set(SessionKey::PHONE_DATA, $phoneData);
@@ -147,18 +142,9 @@ class OtpFlowService
         }
 
         // FAILURE: No URL succeeded.
-        $statusDetail = strtolower((string) ($response['statusDetail'] ?? ''));
-
-        // Check statusDetail for "already registered"
-        if ($statusDetail === ApiStatus::ALREADY_REGISTERED->value) {
-            // Only log if ALL failed attempts were due to "already registered"
+        if ($outcome === OtpRequestOutcome::ALREADY_REGISTERED) {
             $failedAttempts = $response['failedAttempts'] ?? [];
-            $alreadyRegisteredUrls = [];
-            foreach ($failedAttempts as $attempt) {
-                if (($attempt['response']['statusDetail'] ?? '') === ApiStatus::ALREADY_REGISTERED->value) {
-                    $alreadyRegisteredUrls[] = $attempt['base_url'];
-                }
-            }
+            $alreadyRegisteredUrls = $response['alreadyRegisteredUrls'] ?? [];
 
             // Scope is "all" if ALL failed attempts were due to "already registered"
             $scope = \count($alreadyRegisteredUrls) === \count($failedAttempts) ? 'all' : 'some';
@@ -172,11 +158,10 @@ class OtpFlowService
 
             $this->session->set(SessionKey::ALREADY_REGISTERED, self::ALREADY_REGISTERED);
             $this->session->set(SessionKey::PHONE_DATA, $phoneData);
-            return OtpFlowResult::error(ApiStatus::ALREADY_REGISTERED->value, './');
+            return OtpFlowResult::error(self::ALREADY_REGISTERED_XHR, './');
         }
 
-        // Check statusDetail for "temporary system error"
-        if (str_contains($statusDetail, ApiStatus::TEMPORARY_FAILURE->value)) {
+        if ($outcome === OtpRequestOutcome::TEMPORARY_FAILURE) {
             $smsNumber = $this->config['sms']['number'] ?? null;
             $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
@@ -200,7 +185,7 @@ class OtpFlowService
             return OtpFlowResult::error('Temporary system error', 'otp', true, 'otp');
         }
 
-        if (str_contains($statusDetail, ApiStatus::MAX_REQUESTS_REACHED->value)) {
+        if ($outcome === OtpRequestOutcome::MAX_REQUESTS) {
             $this->rateLimiter->block('otp_max_requests:' . $phoneData['capi_format'], 3600);
 
             $smsNumber = $this->config['sms']['number'] ?? null;
@@ -265,7 +250,7 @@ class OtpFlowService
         $this->logger->info('OTP verification attempted', [
             'token' => $token,
             'otp' => $rawOtp,
-            'status' => $response['status'] ?? null,
+            'outcome' => $response['outcome'],
             'response' => $response['originalResponse'] ?? null,
         ]);
 
@@ -297,15 +282,23 @@ class OtpFlowService
      */
     private function handleVerificationResponse(Request $request, array $response, array|\ArrayAccess $token): OtpFlowResult
     {
-        $responseStatus = $response['status'] ?? null;
+        $outcome = $response['outcome'];
 
-        if ($responseStatus === self::OTP_SUCCESS) {
-            $platform = $token['platform'] ?? ($this->session->get(SessionKey::PHONE_DATA)['platform'] ?? null);
-            return $this->handleSuccessfulVerification($response, $platform);
+        if ($outcome === OtpVerifyOutcome::VERIFIED) {
+            return $this->handleSuccessfulVerification();
+        }
+
+        if ($outcome === OtpVerifyOutcome::NOT_SUBSCRIBED) {
+            $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_REGISTRATION_FAILED);
+            $this->logger->critical('Registration failed. Unexpected Subscription Status', [
+                'platform' => $token['platform'] ?? ($this->session->get(SessionKey::PHONE_DATA)['platform'] ?? null),
+                'response' => $response,
+            ]);
+            return OtpFlowResult::error(self::ERROR_REGISTRATION_FAILED, 'otp', false);
         }
 
         // Handle expired OTP specifically
-        if ($responseStatus === self::OTP_STATUS_EXPIRED) {
+        if ($outcome === OtpVerifyOutcome::EXPIRED) {
             return $this->handleExpiredToken($request, $token);
         }
 
@@ -316,7 +309,7 @@ class OtpFlowService
         $smsKeyword = $this->config['sms']['keyword'] ?? null;
 
         if ($smsNumber && $smsKeyword) {
-            if ($responseStatus === self::OTP_INVALID) {
+            if ($outcome === OtpVerifyOutcome::INVALID) {
                 $count = (int) $this->session->get(SessionKey::INVALID_OTP_COUNT, 0) + 1;
                 $this->session->set(SessionKey::INVALID_OTP_COUNT, $count);
                 $context = ['invalid_otp_count' => $count, 'app' => $appName, 'response' => $response];
@@ -337,7 +330,7 @@ class OtpFlowService
                 );
             }
 
-            if ($responseStatus === self::OTP_NOT_FOUND) {
+            if ($outcome === OtpVerifyOutcome::NOT_FOUND) {
                 $this->session->set(SessionKey::SHOW_SMS_LINK, true);
                 $this->logger->notice('OTP not found, showing SMS fallback link.', [
                     'app' => $appName,
@@ -352,13 +345,13 @@ class OtpFlowService
         }
 
         // For invalid otp without SMS config
-        if ($responseStatus === self::OTP_INVALID) {
+        if ($outcome === OtpVerifyOutcome::INVALID) {
             $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_OTP_INVALID);
             $this->logger->notice('Invalid OTP attempt.', ['app' => $appName, 'response' => $response]);
             return OtpFlowResult::error(self::ERROR_OTP_INVALID, 'otp', false);
         }
 
-        if ($responseStatus === self::OTP_NOT_FOUND) {
+        if ($outcome === OtpVerifyOutcome::NOT_FOUND) {
             $this->logger->notice('OTP not found.', ['app' => $appName, 'response' => $response]);
             // Get a new otp for the same url or fallback urls.
             return $this->handleExpiredToken($request, $token);
@@ -369,30 +362,15 @@ class OtpFlowService
     }
 
     /**
-     * Handles the logic for a successful OTP verification.
+     * Registers the visitor once the platform has accepted the OTP and reports a subscription.
      */
-    private function handleSuccessfulVerification(array $response, ?string $platform): OtpFlowResult
+    private function handleSuccessfulVerification(): OtpFlowResult
     {
-        $isSubscribed = \in_array(
-            $response['subscriptionStatus'] ?? null,
-            [self::SUB_STATUS_REGISTERED, self::SUB_STATUS_PENDING, self::SUB_STATUS_PENDING_MSPACE],
-            true
-        );
-
-        if ($isSubscribed) {
-            $regId = $this->generateRandomId('reg-');
-            $this->session->set(SessionKey::REG_ID, $regId);
-            $this->session->unset(SessionKey::INVALID_OTP_COUNT);
-            $this->session->unset(SessionKey::SHOW_SMS_LINK);
-            return OtpFlowResult::success('thanks');
-        }
-
-        $this->session->set(SessionKey::ERROR_MESSAGE, self::ERROR_REGISTRATION_FAILED);
-        $this->logger->critical('Registration failed. Unexpected Subscription Status', [
-            'platform' => $platform,
-            'response' => $response,
-        ]);
-        return OtpFlowResult::error(self::ERROR_REGISTRATION_FAILED, 'otp', false);
+        $regId = $this->generateRandomId('reg-');
+        $this->session->set(SessionKey::REG_ID, $regId);
+        $this->session->unset(SessionKey::INVALID_OTP_COUNT);
+        $this->session->unset(SessionKey::SHOW_SMS_LINK);
+        return OtpFlowResult::success('thanks');
     }
 
     /**
@@ -421,7 +399,7 @@ class OtpFlowService
 
         $response = $this->attemptFallback($platform, (string) $subscriberId, $request, $allFailedUrls);
 
-        if (($response['status'] ?? null) === 'success') {
+        if ($response['outcome'] === OtpRequestOutcome::SENT) {
             return $this->handleFallbackSuccess($response, $allFailedUrls);
         }
 
@@ -523,7 +501,7 @@ class OtpFlowService
 
         $response = $this->attemptFallback((string) $platform, (string) $subscriberId, $request, $failedUrls);
 
-        if (($response['status'] ?? null) === self::OTP_SUCCESS) {
+        if ($response['outcome'] === OtpRequestOutcome::SENT) {
             $newToken = $response['verificationToken'];
             $newUrl = $newToken['usedApiUrl'] ?? null;
             $context = [

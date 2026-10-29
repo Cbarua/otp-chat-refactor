@@ -181,7 +181,7 @@ Paths are under `/Users/chinmoy/projects/personal/telco-platform-laravel/app/`. 
 - **The mSpace page reuses Ideamart text.** One SMS schema says "Please check the issue with Idea Mart system administrator" [M sms/send, `responseOfSendServices-2`]. This fits the identical mSpace/bdapps OTP wording: the pages come from one template.
 - **Docs and driver code agree** on endpoints and on every exact string the middle layer matches.
 
-For our shared code table: E1850, E1851, E1852 and S1000 are safe to map by code everywhere. E1853 is the one code whose meaning depends on the source, and our `OtpFlowService.php:384-391` currently accepts only the spaced `INITIAL CHARGING PENDING` (mSpace passes by platform instead).
+For our shared code table: E1850, E1851, E1852 and S1000 are safe to map by code everywhere. E1853 is the one code whose meaning depends on the source; `OtpApiService` maps it only on the request step. It counts `REGISTERED`, `INITIAL CHARGING PENDING` and `INITIAL_CHARGING_PENDING` as subscribed.
 
 ---
 
