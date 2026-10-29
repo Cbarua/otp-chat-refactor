@@ -191,9 +191,9 @@ final class OtpFormAjaxCest
 
         // Attempt 3 -> Triggers SMS fallback
         $I->fillField('otp', '123456');
-        $I->wait(3);
+        $I->wait(4);
 
-        // Should reload and render SMS Fallback link
+        // The JS shows the message for 2 s, then reloads /otp with the SMS Fallback link
         $I->seeElement('#smsLink');
 
         // Navigating to / should clear SMS fallback state
@@ -209,7 +209,8 @@ final class OtpFormAjaxCest
         $this->navigateToOtpForm($I);
 
         $I->fillField('otp', '444444');
-        $I->wait(3);
+        // The JS shows the message for 2 s, then reloads /otp with the SMS Fallback link
+        $I->wait(4);
 
         $I->seeElement('#smsLink');
     }

@@ -952,6 +952,29 @@ class OtpControllerTest extends TestCase
         $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
         $data = json_decode($response->getContent(), true);
         $this->assertEquals('error', $data['status']);
+        $this->assertNull($data['redirect']);
+    }
+
+    public function testHandleOtpFormAjaxThirdInvalidOtpSendsVisitorToSmsLink(): void
+    {
+        $this->sessionData[OtpController::SESSION_OTP_TOKEN] = ['referenceNo' => 'ref', 'usedApiUrl' => 'url1'];
+        $this->sessionData[OtpController::SESSION_INVALID_OTP_COUNT] = 2;
+        $this->csrfServiceMock->method('validate')->willReturn(true);
+        $this->rateLimiterMock->method('check')->willReturn(true);
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::INVALID]);
+
+        $request = new Request([], ['csrf_token' => 'valid', 'otp' => '123456']);
+        $request->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        $response = $this->controller->handleOtpForm($request);
+
+        $data = json_decode($response->getContent(), true);
+        $this->assertSame(
+            ['status' => 'error', 'message' => 'Invalid OTP. Please enter the correct OTP.', 'redirect' => 'otp'],
+            $data
+        );
+        $this->assertTrue($this->sessionData[OtpController::SESSION_SHOW_SMS_LINK]);
+        $this->assertArrayNotHasKey(OtpController::SESSION_ERROR, $this->sessionData);
     }
 
     public function testHandleOtpFormAjaxVerificationFailsOtpNotFoundWithSmsConfig(): void
@@ -970,7 +993,7 @@ class OtpControllerTest extends TestCase
         $data = json_decode($response->getContent(), true);
         $this->assertEquals('error', $data['status']);
         $this->assertEquals('OTP not found.', $data['message']);
-        $this->assertTrue($data['showSmsLink']);
+        $this->assertSame('otp', $data['redirect']);
     }
 
     public function testHandleOtpFormAjaxVerificationFailsInvalidOtpWithoutSmsConfig(): void

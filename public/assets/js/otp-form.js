@@ -61,7 +61,6 @@ document.addEventListener('DOMContentLoaded', function () {
         submitBtn.value = "Verifying...";
 
         const formData = new FormData(form);
-        const redirectMessages = ["Session expired", "Registration failed", "Security check failed", "An error occurred"];
 
         fetch('', {
             method: 'POST',
@@ -75,31 +74,27 @@ document.addEventListener('DOMContentLoaded', function () {
             return response.json();
         })
         .then(data => {
-            if (data.status === 'success' && data.redirect) {
+            if (data.status === 'success') {
                 window.location.href = data.redirect;
-            } else if (data.message && redirectMessages.some(str => data.message.includes(str)) && data.redirect) {
-                // Show Error and redirect after delay
-                errorDiv.innerText = data.message || "An error occurred. Please try again.";
-                errorDiv.style.display = "block";
+                return;
+            }
 
+            // Show Error
+            errorDiv.innerText = data.message || "An error occurred. Please try again.";
+            errorDiv.style.display = "block";
+
+            // The server decides where to go next ('otp' reloads, e.g. to show the SMS link); null stays.
+            if (data.redirect) {
                 setTimeout(() => {
-                    window.location.href = data.redirect === './' ? '/' : data.redirect;
+                    window.location.href = data.redirect;
                 }, 2000);
-            } else {
-                // Show Error
-                errorDiv.innerText = data.message || "An error occurred. Please try again.";
-                errorDiv.style.display = "block";
-
-                if (data.showSmsLink) {
-                    window.location.reload(); // Refresh to display SMS link if triggered
-                } else {
-                    submitBtn.disabled = false;
-                    submitBtn.value = originalBtnValue;
-                    if (otpInput) {
-                        otpInput.value = '';
-                        otpInput.focus();
-                    }
-                }
+                return;
+            }
+            submitBtn.disabled = false;
+            submitBtn.value = originalBtnValue;
+            if (otpInput) {
+                otpInput.value = '';
+                otpInput.focus();
             }
         })
         .catch(error => {

@@ -174,7 +174,7 @@ class OtpFlowService
                 'platform' => $phoneData['platform'],
                 'final_app' => $this->getAppNamesFromUrls([$response['finalUrl'] ?? ''])[0] ?? '',
             ]);
-            return OtpFlowResult::error('Temporary system error', 'otp', showSmsLink: true, flash: false);
+            return OtpFlowResult::smsFallback('Temporary system error');
         }
 
         if ($outcome === OtpRequestOutcome::MAX_REQUESTS) {
@@ -192,7 +192,7 @@ class OtpFlowService
                     'platform' => $phoneData['platform'],
                     'phone' => $phoneData['capi_format'],
                 ]);
-                return OtpFlowResult::error('Maximum number of OTP requests reached', 'otp', showSmsLink: true, flash: false);
+                return OtpFlowResult::smsFallback('Maximum number of OTP requests reached');
             }
 
             $errorMessage = str_replace([':number', ':minutes'], [$rawPhone, 60], self::ERROR_MAX_REQUESTS);
@@ -311,7 +311,7 @@ class OtpFlowService
                 if ($count >= 3) {
                     $this->session->set(SessionKey::SHOW_SMS_LINK, true);
                     $this->logger->notice('3 invalid OTP attempts, showing SMS fallback link.', $context);
-                    return OtpFlowResult::error(self::ERROR_OTP_INVALID, showSmsLink: true, flash: false);
+                    return OtpFlowResult::smsFallback(self::ERROR_OTP_INVALID);
                 }
 
                 $this->session->set(SessionKey::SHOW_SMS_LINK, false);
@@ -325,7 +325,7 @@ class OtpFlowService
                     'app' => $appName,
                     'response' => $response,
                 ]);
-                return OtpFlowResult::error('OTP not found.', showSmsLink: true, flash: false);
+                return OtpFlowResult::smsFallback('OTP not found.');
             }
         }
 

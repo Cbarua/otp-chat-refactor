@@ -368,7 +368,7 @@ class FormControllerTest extends TestCase
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
         $this->otpFlowServiceMock->expects($this->once())
             ->method('requestOtp')
-            ->willReturn(OtpFlowResult::error('Temporary system error', 'otp', showSmsLink: true, flash: false));
+            ->willReturn(OtpFlowResult::smsFallback('Temporary system error'));
 
         $this->controller->handlePhoneForm($request);
 
@@ -402,7 +402,7 @@ class FormControllerTest extends TestCase
         $this->sessionData[FormController::SESSION_ERROR] = 'stale error';
         $this->sessionData[FormController::SESSION_ALREADY_REGISTERED] = 'stale already registered';
 
-        $result = OtpFlowResult::error('Temporary system error', 'otp', showSmsLink: true, flash: false);
+        $result = OtpFlowResult::smsFallback('Temporary system error');
         $this->csrfServiceMock->expects($this->once())->method('validate')->with('valid-token')->willReturn(true);
         $this->otpFlowServiceMock->expects($this->once())
             ->method('requestOtp')
@@ -433,6 +433,6 @@ class FormControllerTest extends TestCase
 
         $this->assertInstanceOf(\Symfony\Component\HttpFoundation\JsonResponse::class, $response);
         $this->assertEquals(200, $response->getStatusCode());
-        $this->assertSame(['status' => 'success', 'redirect' => 'otp'], json_decode($response->getContent(), true));
+        $this->assertSame(['status' => 'success', 'message' => null, 'redirect' => 'otp'], json_decode($response->getContent(), true));
     }
 }

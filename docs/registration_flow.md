@@ -79,10 +79,10 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   **`SENT` (S1000)**:
         *   Stores opaque `verificationToken` as `SESSION_OTP_TOKEN`.
         *   Generates `SESSION_LEAD_ID` (`lead-xxxx`) for tracking.
-        *   Redirects to `/otp` (HTML) or returns `{"status": "success", "redirect": "otp"}` (AJAX).
+        *   Redirects to `/otp` (HTML) or returns `{"status": "success", "message": null, "redirect": "otp"}` (AJAX).
     *   **`ALREADY_REGISTERED` (E1351)**:
         *   Logs notice detailing which app services user is registered on (`alreadyRegisteredUrls` from `OtpApiService`).
-        *   Flashes `You are already registered!` under `SESSION_ALREADY_REGISTERED` and redirects to `/`, or returns a JSON error whose message is `user already registered` (`phone-form.js` matches that text).
+        *   Flashes `You are already registered!` under `SESSION_ALREADY_REGISTERED` and redirects to `/`, or returns it with the status `already_registered`, which `phone-form.js` shows in its green box.
     *   **`TEMPORARY_FAILURE` (E1603)**:
         *   If SMS fallback is configured (`sms.number` & `sms.keyword`), sets `SESSION_SHOW_SMS_LINK = true` and a dummy `SESSION_OTP_TOKEN`, then redirects to `/otp`.
         *   Otherwise, flashes `ERROR_GENERIC` and redirects to `/`.
@@ -123,16 +123,16 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   **`VERIFIED` (S1000 with subscription status `REGISTERED`, `INITIAL CHARGING PENDING` or mspace's `INITIAL_CHARGING_PENDING`)**:
         *   Generates `SESSION_REG_ID` (`reg-xxxx`).
         *   Clears `SESSION_INVALID_OTP_COUNT` and `SESSION_SHOW_SMS_LINK`.
-        *   Redirects to `/thanks` or returns `{"status": "success", "redirect": "thanks"}`.
+        *   Redirects to `/thanks` or returns `{"status": "success", "message": null, "redirect": "thanks"}`.
     *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", flashes `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
     *   **`EXPIRED` (E1851)**:
         *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again (apps that already failed are not excluded).
         *   Flashes `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and updates `SESSION_OTP_TOKEN`.
     *   **`INVALID` (E1850)**:
-        *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` to reveal the SMS link, otherwise flashes `ERROR_OTP_INVALID`.
+        *   With SMS config present: increments `SESSION_INVALID_OTP_COUNT`; at 3 sets `SESSION_SHOW_SMS_LINK = true` and sends the visitor back to `/otp` (the AJAX script reloads after 2 s) to reveal the SMS link, otherwise flashes `ERROR_OTP_INVALID`.
         *   Without SMS config: flashes `ERROR_OTP_INVALID` (no counter).
     *   **`NOT_FOUND` (E1854)**:
-        *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and returns SMS fallback link.
+        *   If SMS config present: Sets `SESSION_SHOW_SMS_LINK = true` and sends the visitor back to `/otp` to show the SMS fallback link.
         *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
     *   **`ATTEMPTS_EXHAUSTED` (E1852)**: logs a notice and runs `handleFailedVerification()`, an app fallback to the next app that has not failed.
     *   **`PROVIDER_ERROR` (any other code, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
@@ -157,23 +157,29 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 
 | Endpoint | Action / Result | HTML Behavior | AJAX Response (JSON) |
 | :--- | :--- | :--- | :--- |
-| `POST /` | CSRF Error | Redirect `/` + Session Error | `{"status": "error", "message": "Security check failed..."}` |
-| `POST /` | Invalid Phone | Redirect `/` + Session Error | `{"status": "error", "message": "Invalid phone number..."}` |
-| `POST /` | 60-min Blocked | Redirect `/` + Session Error | `{"status": "error", "message": "Maximum number of OTP requests..."}` |
-| `POST /` | OTP Requested | Redirect `/otp` | `{"status": "success", "redirect": "otp"}` |
-| `POST /` | SMS Fallback Triggered | Redirect `/otp` + SMS Mode | `{"status": "error", "message": "...", "showSmsLink": true, "redirect": "otp"}` |
+| `POST /` | CSRF Error | Redirect `/` + Session Error | `{"status": "error", "message": "Security check failed...", "redirect": null}` |
+| `POST /` | Invalid Phone | Redirect `/` + Session Error | `{"status": "error", "message": "Invalid phone number...", "redirect": null}` |
+| `POST /` | 60-min Blocked | Redirect `/` + Session Error | `{"status": "error", "message": "Maximum number of OTP requests...", "redirect": null}` |
+| `POST /` | Already Registered | Redirect `/` + Already Registered | `{"status": "already_registered", "message": "You are already registered!", "redirect": null}` |
+| `POST /` | OTP Requested | Redirect `/otp` | `{"status": "success", "message": null, "redirect": "otp"}` |
+| `POST /` | SMS Fallback Triggered | Redirect `/otp` + SMS Mode | `{"status": "error", "message": "...", "redirect": "otp"}` |
 | `POST /otp` | CSRF Error | Redirect `/otp` + Session Error | `{"status": "error", "message": "Security check failed...", "redirect": "otp"}` |
-| `POST /otp` | Invalid OTP (< 3 tries) | Redirect `/otp` + Session Error | `{"status": "error", "message": "Invalid OTP...", "showSmsLink": false}` |
-| `POST /otp` | 3 Tries / SMS Fallback | Redirect `/otp` + SMS Mode | `{"status": "error", "message": "...", "showSmsLink": true}` |
-| `POST /otp` | Token Renewed | Redirect `/otp` + Session Error | `{"status": "error", "message": "Your OTP expired..."}` |
-| `POST /otp` | Verification Success | Redirect `/thanks` | `{"status": "success", "redirect": "thanks"}` |
+| `POST /otp` | Session Expired (no token) | Redirect `/` | `{"status": "error", "message": "Session expired...", "redirect": "./"}` |
+| `POST /otp` | Invalid OTP (< 3 tries) | Redirect `/otp` + Session Error | `{"status": "error", "message": "Invalid OTP...", "redirect": null}` |
+| `POST /otp` | 3 Tries / SMS Fallback | Redirect `/otp` + SMS Mode | `{"status": "error", "message": "Invalid OTP...", "redirect": "otp"}` |
+| `POST /otp` | Token Renewed | Redirect `/otp` + Session Error | `{"status": "error", "message": "Your OTP expired...", "redirect": null}` |
+| `POST /otp` | App Fallback Failed | Redirect `/otp` + Session Error | `{"status": "error", "message": "An error occurred..." or "Too many attempts...", "redirect": null}` |
+| `POST /otp` | Renewal Failed / Missing Data | Redirect `/` + Session Error | `{"status": "error", "message": "An error occurred...", "redirect": "./"}` |
+| `POST /otp` | Verification Success | Redirect `/thanks` | `{"status": "success", "message": null, "redirect": "thanks"}` |
+
+The scripts go to `redirect` at once on success. On an error with a `redirect` they show the message and go after a delay (3 s on `/`, 2 s on `/otp`); `"redirect": null` keeps the visitor on the page.
 
 ---
 
 ## Service Layer & State Architecture
 
 ### 0. `App\Service\OtpFlowService`
-The OTP flow module. Two public methods, one per step, both returning `App\DTO\OtpFlowResult` (`status`, `message`, `next`, `showSmsLink`, `flash`; `toArray()` is the AJAX body):
+The OTP flow module. Two public methods, one per step, both returning `App\DTO\OtpFlowResult` (`status`, `message`, `next`, `flash`; `toArray()` is the AJAX body):
 *   `requestOtp($request, $rawPhone)`: rate limit, phone normalization, 60-minute block, token reuse, `OtpApiService::getOtp()` with app fallback, already-registered / SMS fallback / error outcomes.
 *   `processVerification($request, $rawOtp)`: rate limit, format check, `OtpApiService::verifyOtp()`, token renewal and app fallback, SMS fallback after repeated failures.
 Both write the session state for the next step and leave the HTML flash message to `BaseController::respond()`; they never read cookies or produce HTTP responses.

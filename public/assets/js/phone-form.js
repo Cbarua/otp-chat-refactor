@@ -90,35 +90,38 @@ document.addEventListener('DOMContentLoaded', function () {
             return response.json();
         })
         .then(data => {
-            if (data.status === 'success' && data.redirect) {
+            if (data.status === 'success') {
                 window.location.href = data.redirect;
-            } else {
-                // Show Error
-                if (data.message === 'user already registered') {
-                    alreadyRegisteredDiv.innerText = "You are already registered!";
-                    alreadyRegisteredDiv.style.display = "block";
-                    trackGa('form_error', {
-                        event_category: 'form',
-                        event_label: 'already_registered'
-                    });
-                } else {
-                    errorDiv.innerText = data.message || "An error occurred. Please try again.";
-                    errorDiv.style.display = "block";
-                    trackGa('form_error', {
-                        event_category: 'form',
-                        event_label: 'phone_form_error',
-                        message: data.message || 'Unknown error'
-                    });
-                }
-                submitBtn.disabled = false;
-                submitBtn.value = originalBtnValue;
-
-                if (data.showSmsLink === true) {
-                    setTimeout(() => {
-                        window.location.href = data.redirect ?? 'otp';
-                    }, 3000);
-                }
+                return;
             }
+
+            // Show Error
+            if (data.status === 'already_registered') {
+                alreadyRegisteredDiv.innerText = data.message;
+                alreadyRegisteredDiv.style.display = "block";
+                trackGa('form_error', {
+                    event_category: 'form',
+                    event_label: 'already_registered'
+                });
+            } else {
+                errorDiv.innerText = data.message || "An error occurred. Please try again.";
+                errorDiv.style.display = "block";
+                trackGa('form_error', {
+                    event_category: 'form',
+                    event_label: 'phone_form_error',
+                    message: data.message || 'Unknown error'
+                });
+            }
+
+            // The server decides where to go next; null keeps the visitor on the form.
+            if (data.redirect) {
+                setTimeout(() => {
+                    window.location.href = data.redirect;
+                }, 3000);
+                return;
+            }
+            submitBtn.disabled = false;
+            submitBtn.value = originalBtnValue;
         })
         .catch(error => {
             console.error('Error:', error);
