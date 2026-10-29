@@ -363,14 +363,13 @@ class OtpFlowService
             return OtpFlowResult::error(self::ERROR_GENERIC, './');
         }
 
-        // Retrieve previously failed URLs from the token and add the current one
-        $previouslyFailedUrls = $token->failedUrls;
-        $allFailedUrls = array_unique(array_merge($previouslyFailedUrls, [$failedUrl]));
+        // Skip the apps that gave a refusal and, for this walk only, the app that just failed verification
+        $allFailedUrls = array_unique(array_merge($token->failedUrls, [$failedUrl]));
 
         $response = $this->attemptFallback($platform, (string) $subscriberId, $request, $allFailedUrls);
 
         if ($response['outcome'] === OtpRequestOutcome::SENT) {
-            return $this->handleFallbackSuccess($response, $allFailedUrls);
+            return $this->handleFallbackSuccess($response, $token);
         }
 
         return $this->handleFallbackFailure($isRateLimit);
@@ -395,9 +394,9 @@ class OtpFlowService
     /**
      * Handles a successful OTP fallback response.
      */
-    private function handleFallbackSuccess(array $response, array $allFailedUrls): OtpFlowResult
+    private function handleFallbackSuccess(array $response, OtpVerificationToken $token): OtpFlowResult
     {
-        $newToken = $response['verificationToken']->withFailedUrls($allFailedUrls);
+        $newToken = $this->keepRefusals($response['verificationToken'], $token);
 
         $this->logger->info(
             'Successfully received new OTP from a fallback URL.',
@@ -447,7 +446,8 @@ class OtpFlowService
             'used_app' => $usedApp,
         ]);
 
-        $failedUrls = [];
+        // A token renewal starts again from the first app, skipping only the apps that gave a refusal.
+        $failedUrls = $token->failedUrls;
 
         if (empty($subscriberId) || empty($platform)) {
             $this->logger->critical('Cannot auto-renew expired OTP due to missing data.', [
@@ -460,7 +460,7 @@ class OtpFlowService
         $response = $this->attemptFallback((string) $platform, (string) $subscriberId, $request, $failedUrls);
 
         if ($response['outcome'] === OtpRequestOutcome::SENT) {
-            $newToken = $response['verificationToken'];
+            $newToken = $this->keepRefusals($response['verificationToken'], $token);
             $newUrl = $newToken->usedApiUrl;
             $context = [
                 'phone' => $phone->capiFormat,
@@ -486,6 +486,14 @@ class OtpFlowService
             'created_at' => $this->timestampToDateString($createdAt)
         ]);
         return OtpFlowResult::error(self::ERROR_GENERIC, './');
+    }
+
+    /**
+     * The token from a new walk, keeping the apps that gave a refusal to the token it replaces.
+     */
+    private function keepRefusals(OtpVerificationToken $newToken, OtpVerificationToken $oldToken): OtpVerificationToken
+    {
+        return $newToken->withFailedUrls(array_values(array_unique([...$oldToken->failedUrls, ...$newToken->failedUrls])));
     }
 
     /**

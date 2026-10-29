@@ -13,8 +13,12 @@ One application registered on a platform, with its own subscriber base, reached 
 _Avoid_: endpoint, gateway, base URL, URL, service
 
 **App fallback**:
-Trying the next app of the same platform when the current one cannot issue an OTP, cannot verify the submitted one, or the visitor's verification attempts run out; within one such round an app that already failed is not tried again. A token renewal is not an app fallback: it starts again from the platform's first app.
+Trying the next app of the same platform when the current one cannot issue an OTP, cannot verify the submitted one, or the visitor's verification attempts run out. Within one such round an app is tried once; an app that gave a refusal is skipped, and after a failed verification so is the app that issued the OTP, for that round only. An app that failed for any other reason can be tried again in a later round. A token renewal is not an app fallback: it starts again from the platform's first app.
 _Avoid_: multi-URL fallback, URL rotation, retry
+
+**Refusal**:
+An app's answer that the number can never subscribe through it: already registered (E1351) or blacklisted (E1342). An app that gave one is skipped by every later app fallback and token renewal of the OTP flow; any other failure is temporary, and the app can be asked again.
+_Avoid_: failed app, blocked app
 
 **OTP token**:
 The platform's handle for one issued OTP, held for the visitor until it is verified, renewed or abandoned.
@@ -24,7 +28,7 @@ _Avoid_: verification token, reference
 Answering a repeated request for the same number with the OTP token already held, while it is still fresh, instead of asking the provider again.
 
 **Token renewal**:
-Obtaining a fresh OTP for the same number after the platform reports the current one expired, or unknown while SMS fallback is unavailable; the platform's apps are tried from the first again.
+Obtaining a fresh OTP for the same number after the platform reports the current one expired, or unknown while SMS fallback is unavailable; the platform's apps are tried from the first again, skipping those that gave a refusal.
 _Avoid_: auto-renew, re-request
 
 **SMS fallback**:

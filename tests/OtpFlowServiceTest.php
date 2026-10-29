@@ -668,7 +668,7 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
         $this->assertNull($result->next);
-        $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
+        $this->assertEquals($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
     public function testProcessVerificationExpiredTokenAutoRenewSuccess(): void
@@ -699,7 +699,7 @@ class OtpFlowServiceTest extends TestCase
         $this->assertFalse($result->isSuccess());
         $this->assertEquals(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
         $this->assertNull($result->next);
-        $this->assertSame($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
+        $this->assertEquals($newToken, $_SESSION[SessionKey::OTP_TOKEN->value]);
     }
 
     public function testProcessVerificationRateLimitExceededTriggersFallbackSuccess(): void
@@ -761,6 +761,49 @@ class OtpFlowServiceTest extends TestCase
         $this->assertSame(OtpFlowService::ERROR_OTP_NEW, $result->message);
         $this->assertNull($result->next);
         $this->assertSame('refFallback', $_SESSION[SessionKey::OTP_TOKEN->value]->referenceNo);
+    }
+
+    public function testAppFallbackKeepsTheRefusalsAndSkipsTheFailedAppForThisWalkOnly(): void
+    {
+        $refusedBefore = 'https://mock.api/refused-before.php';
+        $refusedNow = 'https://mock.api/refused-now.php';
+        $_SESSION[SessionKey::OTP_TOKEN->value] = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time(), [$refusedBefore]);
+        $_SESSION[SessionKey::PHONE_DATA->value] = self::phone(...self::SAME_PHONE);
+
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::PROVIDER_ERROR]);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', self::TELCO_PHONE, $this->anything(), [$refusedBefore, self::PRIMARY_API_URL])
+            ->willReturn([
+                'outcome' => OtpRequestOutcome::SENT,
+                'verificationToken' => new OtpVerificationToken('refFallback', self::FALLBACK_API_URL, 'ideamart', time(), [$refusedNow])
+            ]);
+
+        $this->service->processVerification(new Request(), '123456');
+
+        $this->assertSame([$refusedBefore, $refusedNow], $_SESSION[SessionKey::OTP_TOKEN->value]->failedUrls);
+    }
+
+    public function testTokenRenewalSkipsAndKeepsTheRefusals(): void
+    {
+        $refusedBefore = 'https://mock.api/refused-before.php';
+        $refusedNow = 'https://mock.api/refused-now.php';
+        $_SESSION[SessionKey::OTP_TOKEN->value] = new OtpVerificationToken('ref123', self::PRIMARY_API_URL, 'ideamart', time() - 400, [$refusedBefore]);
+        $_SESSION[SessionKey::PHONE_DATA->value] = self::phone(...self::SAME_PHONE);
+
+        $this->otpServiceMock->method('verifyOtp')->willReturn(['outcome' => OtpVerifyOutcome::EXPIRED]);
+        $this->otpServiceMock->expects($this->once())
+            ->method('getOtp')
+            ->with('ideamart', self::TELCO_PHONE, $this->anything(), [$refusedBefore])
+            ->willReturn([
+                'outcome' => OtpRequestOutcome::SENT,
+                'verificationToken' => new OtpVerificationToken('refNew', self::PRIMARY_API_URL, 'ideamart', time(), [$refusedNow])
+            ]);
+
+        $result = $this->service->processVerification(new Request(), '123456');
+
+        $this->assertSame(OtpFlowService::ERROR_OTP_EXPIRED, $result->message);
+        $this->assertSame([$refusedBefore, $refusedNow], $_SESSION[SessionKey::OTP_TOKEN->value]->failedUrls);
     }
 
     public function testProcessVerificationFallbackMissingDataRedirectsHome(): void

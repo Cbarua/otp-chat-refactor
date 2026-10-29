@@ -22,6 +22,9 @@ class OtpApiService
     // Ideamart spells multi-word states with spaces, mspace with underscores.
     private const SUBSCRIBED_STATUSES = ['REGISTERED', 'INITIAL CHARGING PENDING', 'INITIAL_CHARGING_PENDING'];
 
+    // Refusals: already registered, blacklisted. The number can never subscribe through that app, so later walks skip it.
+    private const REFUSAL_CODES = ['E1351', 'E1342'];
+
     private array $apiConfig;
     private ClientInterface $client;
     private LoggerInterface $logger;
@@ -46,7 +49,8 @@ class OtpApiService
      * @param string $subscriberId The 'tel:...' formatted number.
      * @param array $metaData Additional data for the API call.
      * @param array $excludeUrls Base URLs of apps not to try this time.
-     * @return array 'outcome' (OtpRequestOutcome). Sent adds 'verificationToken' and 'originalResponse'; the other
+     * @return array 'outcome' (OtpRequestOutcome). Sent adds 'verificationToken', whose failedUrls are the apps of this
+     *               walk that gave a refusal, and 'originalResponse'; the other
      *               outcomes come from the last app's reply and add 'statusCode', 'statusDetail', 'failedAttempts',
      *               'alreadyRegisteredUrls', 'finalResponse' and 'finalUrl', unless no app could be tried ('message').
      */
@@ -69,7 +73,7 @@ class OtpApiService
         }
 
         $lastResponse = [];
-        $failedUrls = [];
+        $refusedUrls = [];
         $failedAttempts = [];
         $alreadyRegisteredUrls = [];
 
@@ -94,7 +98,7 @@ class OtpApiService
                         usedApiUrl: $baseUrl,
                         platform: $platform,
                         createdAt: time(),
-                        failedUrls: $failedUrls
+                        failedUrls: $refusedUrls
                     ),
                     'originalResponse' => $response
                 ];
@@ -112,7 +116,9 @@ class OtpApiService
                 'base_url' => $baseUrl,
                 'response' => $response
             ]);
-            $failedUrls[] = $baseUrl;
+            if (\in_array($response['statusCode'] ?? null, self::REFUSAL_CODES, true)) {
+                $refusedUrls[] = $baseUrl;
+            }
             if ($this->requestOutcome($response) === OtpRequestOutcome::ALREADY_REGISTERED) {
                 $alreadyRegisteredUrls[] = $baseUrl;
             }

@@ -2,7 +2,7 @@
 
 **Last Updated:** October 29, 2026
 
-This document details the visitor registration flow within the application, analyzing the interaction between Controllers, Services, Session state, Facebook CAPI events, and External Telco APIs. Domain terms (OTP flow, app, app fallback, OTP token, token reuse, token renewal, SMS fallback, platform, carrier, visitor) are defined in `GLOSSARY.md`.
+This document details the visitor registration flow within the application, analyzing the interaction between Controllers, Services, Session state, Facebook CAPI events, and External Telco APIs. Domain terms (OTP flow, app, app fallback, refusal, OTP token, token reuse, token renewal, SMS fallback, platform, carrier, visitor) are defined in `GLOSSARY.md`.
 
 Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` for the phone submission and `processVerification()` for the OTP submission. The controllers only validate the CSRF token (and, for `/otp`, the session token), call the service and translate its `OtpFlowResult` into an HTTP response.
 
@@ -127,8 +127,8 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
         *   Redirects to `/thanks` or returns `{"status": "success", "message": null, "redirect": "thanks"}`.
     *   **`NOT_SUBSCRIBED` (S1000 with any other subscription status)**: logs CRITICAL "Registration failed. Unexpected Subscription Status", flashes `ERROR_REGISTRATION_FAILED` and stays on `/otp`.
     *   **`EXPIRED` (E1851)**:
-        *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again (apps that already failed are not excluded).
-        *   Flashes `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and replaces `otp_token`, which also resets `invalid_otp_count` and `show_sms_link`.
+        *   Invokes `handleExpiredToken()` for a token renewal: the platform's apps are tried from the first again, skipping only the apps that gave a refusal (the token's `failedUrls`).
+        *   Flashes `ERROR_OTP_EXPIRED` ("Your OTP expired. A new OTP has been sent...") and replaces `otp_token` with the new token, which keeps the earlier refusals plus any from this walk; this also resets `invalid_otp_count` and `show_sms_link`.
         *   If no app sends a new OTP (or the phone or platform is missing), flashes `ERROR_GENERIC` and sends the visitor to `/`.
     *   **`INVALID` (E1850)**:
         *   With SMS config present: increments `invalid_otp_count`; at 3 or more sets `show_sms_link = true` and sends the visitor back to `/otp` (the AJAX script reloads after 2 s) to reveal the SMS link, otherwise flashes `ERROR_OTP_INVALID`.
@@ -136,10 +136,10 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
     *   **`NOT_FOUND` (E1854)**:
         *   If SMS config present: Sets `show_sms_link = true` and sends the visitor back to `/otp` to show the SMS fallback link.
         *   If SMS config absent: Invokes `handleExpiredToken()` for a token renewal.
-    *   **`ATTEMPTS_EXHAUSTED` (E1852)**: logs a notice and runs `handleFailedVerification()`, an app fallback to the next app that has not failed.
-    *   **`PROVIDER_ERROR` (any other code, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback that skips the apps recorded as failed in the token (`$allFailedUrls`).
-*   **App Fallback (`handleFailedVerification()`)**, reached from the rate limit, `ATTEMPTS_EXHAUSTED` and `PROVIDER_ERROR`: requests a new OTP from the platform's apps, skipping the token's `failedUrls` plus the app just used.
-    *   New OTP sent: stores the new token with `failedUrls` set to the apps skipped this round (apps that failed during this round's walk are not added), which resets `invalid_otp_count` and `show_sms_link`; clears the `otp_verification:{visitorId}` rate limit and flashes `ERROR_OTP_NEW` ("Please try again with the new OTP sent to your phone."), staying on `/otp`.
+    *   **`ATTEMPTS_EXHAUSTED` (E1852)**: logs a notice and runs `handleFailedVerification()`, an app fallback (below).
+    *   **`PROVIDER_ERROR` (any other code, or no reply)**: logs CRITICAL "OTP verification failed with an unexpected status" and runs `handleFailedVerification()`, an app fallback (below).
+*   **App Fallback (`handleFailedVerification()`)**, reached from the rate limit, `ATTEMPTS_EXHAUSTED` and `PROVIDER_ERROR`: requests a new OTP from the platform's apps, skipping the apps that gave a refusal (the token's `failedUrls`) and, for this walk only, the app that just failed verification (`$allFailedUrls`). An app that failed for any other reason, in an earlier walk or verification, is asked again.
+    *   New OTP sent: stores the new token, whose `failedUrls` keeps the earlier refusals plus any from this walk (never the app that failed verification), which resets `invalid_otp_count` and `show_sms_link`; clears the `otp_verification:{visitorId}` rate limit and flashes `ERROR_OTP_NEW` ("Please try again with the new OTP sent to your phone."), staying on `/otp`.
     *   No app sends one: flashes `ERROR_RATE_LIMIT` when the rate limit triggered it, otherwise `ERROR_GENERIC`, and stays on `/otp`.
     *   Phone, platform or used app missing: flashes `ERROR_GENERIC` and sends the visitor to `/`.
 
@@ -198,7 +198,7 @@ Both write the session state for the next step and leave the HTML flash message 
 
 ### 1. `App\Service\OtpApiService`
 The only class that reads the platforms' replies. It maps each reply's `statusCode` (and, on verify, `subscriptionStatus`) to `App\Enum\OtpRequestOutcome` / `OtpVerifyOutcome`; the codes mean the same on all three platforms (`docs/provider_status_codes.md`):
-*   `getOtp($platform, $subscriberId, $metaData, $excludeUrls)`: Walks the platform's apps in order (app fallback), skipping `$excludeUrls`, and returns an array with the `outcome`; on `SENT` it adds the `OtpVerificationToken` (`referenceNo`, `usedApiUrl`, `platform`, `createdAt`, `failedUrls`).
+*   `getOtp($platform, $subscriberId, $metaData, $excludeUrls)`: Walks the platform's apps in order (app fallback), skipping `$excludeUrls`, and returns an array with the `outcome`; on `SENT` it adds the `OtpVerificationToken` (`referenceNo`, `usedApiUrl`, `platform`, `createdAt`, `failedUrls`). It decides what counts as a refusal (E1351 already registered, E1342 blacklisted), and the token's `failedUrls` holds only the apps of this walk that gave one; the name predates the rule and stays because sessions in flight hold serialized tokens. `OtpFlowService` merges the old token's list into the new one after an app fallback or a token renewal.
 *   `verifyOtp($verificationToken, $otp)`: Uses token metadata (`usedApiUrl`, `referenceNo`) to target the app that issued the OTP.
 
 ### 2. `App\Service\RateLimiterService`

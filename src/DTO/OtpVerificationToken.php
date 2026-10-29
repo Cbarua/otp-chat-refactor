@@ -11,6 +11,11 @@ use JsonSerializable;
  */
 class OtpVerificationToken implements JsonSerializable
 {
+    /**
+     * @param array $failedUrls Base URLs of the apps that gave this number a refusal (E1351 already registered,
+     *                          E1342 blacklisted); app fallback and token renewal skip them. The name predates
+     *                          the rule and stays because sessions in flight hold serialized tokens.
+     */
     public function __construct(
         public readonly string $referenceNo,
         public readonly string $usedApiUrl,

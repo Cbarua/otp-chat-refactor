@@ -281,6 +281,23 @@ class OtpApiServiceTest extends TestCase
         $this->assertCount(2, $result['failedAttempts']);
     }
 
+    public function testGetOtpTokenKeepsOnlyTheAppsThatGaveARefusal(): void
+    {
+        $apps = ['https://ideamart.mock/a/', 'https://ideamart.mock/b/', 'https://ideamart.mock/c/', 'https://ideamart.mock/d/', 'https://ideamart.mock/e/'];
+        $service = new OtpApiService(['ideamart' => $apps], $this->loggerMock, $this->createMockClient([
+            new Response(200, [], json_encode(['statusCode' => 'E1603'])),
+            new Response(200, [], json_encode(['statusCode' => 'E1351'])),
+            new Response(200, [], json_encode(['statusCode' => 'E1853'])),
+            new Response(200, [], json_encode(['statusCode' => 'E1342'])),
+            new Response(200, [], json_encode(['statusCode' => 'S1000', 'referenceNo' => 'ref-e'])),
+        ]));
+
+        $result = $service->getOtp('ideamart', 'tel:94771234567', []);
+
+        // Already registered and blacklisted are refusals; a temporary failure and the request limit are not.
+        $this->assertSame([$apps[1], $apps[3]], $result['verificationToken']->failedUrls);
+    }
+
     public static function verifyOutcomeProvider(): array
     {
         return [
