@@ -6,6 +6,7 @@ namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
 use Tests\Support\SessionFixtures;
+use Tests\Support\TrackingVariables;
 use App\Service\OtpFlowState;
 use App\Enum\SessionKey;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -54,6 +55,7 @@ class TestableFormController extends FormController
 class FormControllerTest extends TestCase
 {
     use SessionFixtures;
+    use TrackingVariables;
 
     private TestableFormController $controller;
     private array $config;
@@ -84,6 +86,7 @@ class FormControllerTest extends TestCase
                 'test_event_code' => 'TEST123',
                 'pixel_id' => 'fb-pixel-123',
             ],
+            'google' => ['ga_measurement_id' => 'G-TEST123'],
         ];
 
         $this->otpFlowServiceMock = $this->createMock(OtpFlowService::class);
@@ -172,6 +175,60 @@ class FormControllerTest extends TestCase
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
     }
 
+    public function testShowPhoneFormPinsThePageViewAndTheLayoutVariables(): void
+    {
+        $request = Request::createFromGlobals();
+        $this->sessionData[SessionKey::PHONE_DATA->value] = self::phone(capiFormat: '94771234567');
+        $this->sessionData[SessionKey::FBC->value] = 'fb.1.session_fbc';
+        $this->csrfServiceMock->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->method('processRequest')
+            ->willReturn(['fbc' => null, 'fbp' => 'fb.1.request_fbp', 'client_ip_address' => '10.0.0.9']);
+
+        $events = [];
+        $this->capiServiceMock->expects($this->once())->method('sendEvent')
+            ->willReturnCallback(function (string $name, string $id, string $url, array $userData, ?array $customData = null) use (&$events): array {
+                $events[] = [$name, $id, $url, $userData, $customData];
+                return [];
+            });
+        // The visit log stays without the phone the session holds.
+        $this->userLoggerMock->expects($this->once())->method('logVisit')->with('v_test123', '127.0.0.1', 'TestAgent', null);
+        $logs = [];
+        $this->loggerMock->method('info')->willReturnCallback(function (string $message, array $context = []) use (&$logs): void {
+            $logs[] = [$message, $context];
+        });
+
+        $this->controller->showPhoneForm($request);
+
+        [$name, $id, $url, $userData, $customData] = $events[0];
+        $this->assertSame('PageView', $name);
+        $this->assertMatchesRegularExpression('/^pgview-[0-9a-f]{32}$/', $id);
+        $this->assertSame('https://localhost/', $url);
+        $this->assertSame([
+            'ip' => '10.0.0.9',
+            'agent' => 'TestAgent',
+            'phone' => '94771234567',
+            'fbp' => 'fb.1.request_fbp',
+            'fbc' => 'fb.1.session_fbc',
+            'external_id' => 'v_test123',
+            'country' => 'lk',
+        ], $userData);
+        $this->assertNull($customData);
+        $this->assertSame($id, $this->sessionData[SessionKey::PAGE_VIEW_ID->value]);
+        $this->assertSame('fb.1.request_fbp', $this->sessionData[SessionKey::FBP->value]);
+        $this->assertTrackingVariables([
+            'pixelId' => 'fb-pixel-123',
+            'externalId' => 'v_test123',
+            'phoneCapi' => '94771234567',
+            'country' => 'lk',
+            'pageViewEventId' => $id,
+            'gaMeasurementId' => 'G-TEST123',
+        ], $this->controller->renderData);
+        $this->assertSame([
+            ['New page visit. /', ['ip' => '127.0.0.1', 'useragent' => 'TestAgent']],
+            ['New PageView triggered. /', ['page_view_id' => $id, 'phone_for_matching' => '94771234567']],
+        ], $logs);
+    }
+
     public function testShowPhoneFormWithExistingPhoneDataPassesCountryToCapi(): void
     {
         $request = Request::createFromGlobals();
@@ -232,6 +289,7 @@ class FormControllerTest extends TestCase
     {
         $request = Request::createFromGlobals();
         $this->sessionData[SessionKey::ERROR_MESSAGE->value] = 'Invalid phone number. Example: 0771234567';
+        $this->sessionData[SessionKey::PAGE_VIEW_ID->value] = 'pgview-earlier';
 
         $this->csrfServiceMock->expects($this->once())->method('getToken')->willReturn('csrf-token-123');
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
@@ -241,6 +299,8 @@ class FormControllerTest extends TestCase
 
         $this->assertEquals('phone_form', $this->controller->renderedView);
         $this->assertEquals('Invalid phone number. Example: 0771234567', $this->controller->renderData['errorMessage']);
+        // The Pixel re-sends the earlier PageView id, which Facebook deduplicates.
+        $this->assertSame('pgview-earlier', $this->controller->renderData['pageViewEventId']);
         $this->assertNull($this->controller->renderData['alreadyRegistered']);
         $this->assertArrayNotHasKey(SessionKey::ERROR_MESSAGE->value, $this->sessionData);
     }

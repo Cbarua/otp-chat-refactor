@@ -7,6 +7,7 @@ namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
 use Tests\Support\SessionFixtures;
+use Tests\Support\TrackingVariables;
 use App\Service\OtpFlowState;
 use PHPUnit\Framework\Attributes\CoversClass;
 use App\Controller\ThankYouController;
@@ -45,6 +46,7 @@ class TestableThankYouController extends ThankYouController
 class ThankYouControllerTest extends TestCase
 {
     use SessionFixtures;
+    use TrackingVariables;
 
     private TestableThankYouController $controller;
     private array $config;
@@ -65,7 +67,10 @@ class ThankYouControllerTest extends TestCase
         $_SERVER['REQUEST_URI'] = '/thanks';
         $_SERVER['HTTPS'] = 'on';
 
-        $this->config = ['facebook' => ['pixel_id' => 'fb-pixel-123', 'test_event_code' => 'TEST12345']];
+        $this->config = [
+            'facebook' => ['pixel_id' => 'fb-pixel-123', 'test_event_code' => 'TEST12345'],
+            'google' => ['ga_measurement_id' => 'G-TEST123'],
+        ];
 
         $this->capiServiceMock = $this->createMock(FacebookCapiService::class);
         $this->loggerMock = $this->createMock(LoggerInterface::class);
@@ -122,6 +127,112 @@ class ThankYouControllerTest extends TestCase
         $this->capiServiceMock->expects($this->never())->method('sendEvent');
     }
 
+    public function testShowThankYouPagePinsThePageViewTheRegistrationAndTheLayoutVariables(): void
+    {
+        $this->sessionData = [
+            'reg_id' => 'reg-test-12345',
+            'phone_data' => self::phone(capiFormat: '94771234567', value: 5.0),
+            'otp_token' => self::token(usedApiUrl: 'https://api/app1'),
+            'visitor_id' => 'v_test123',
+            'fbp' => 'fb.1.session_fbp',
+            'fbc' => 'fb.1.session_fbc',
+        ];
+        $request = Request::createFromGlobals();
+        $this->capiServiceMock->method('processRequest')
+            ->willReturn(['fbc' => null, 'fbp' => 'fb.1.request_fbp', 'client_ip_address' => '10.0.0.9']);
+
+        $events = [];
+        $this->capiServiceMock->expects($this->exactly(2))->method('sendEvent')
+            ->willReturnCallback(function (string $name, string $id, string $url, array $userData, ?array $customData = null) use (&$events): array {
+                $events[] = [$name, $id, $url, $userData, $customData];
+                return [];
+            });
+        $logs = [];
+        $this->loggerMock->method('info')->willReturnCallback(function (string $message, array $context = []) use (&$logs): void {
+            $logs[] = [$message, $context];
+        });
+
+        $this->controller->showThankYouPage($request);
+
+        $pageViewId = $events[0][1];
+        $this->assertMatchesRegularExpression('/^pgview-thanks-[0-9a-f]{32}$/', $pageViewId);
+        $this->assertSame([
+            ['PageView', $pageViewId, 'https://localhost/thanks', [
+                'ip' => '10.0.0.9',
+                'agent' => 'TestAgent',
+                'phone' => '94771234567',
+                'fbp' => 'fb.1.request_fbp',
+                'fbc' => 'fb.1.session_fbc',
+                'external_id' => 'v_test123',
+                'country' => 'lk',
+            ], null],
+            ['CompleteRegistration', 'reg-test-12345', 'https://localhost/thanks', [
+                'ip' => '10.0.0.9',
+                'agent' => 'TestAgent',
+                'phone' => '94771234567',
+                'fbp' => 'fb.1.request_fbp',
+                'fbc' => 'fb.1.session_fbc',
+                'external_id' => 'v_test123',
+                'country' => 'lk',
+            ], ['currency' => 'USD', 'value' => '5']],
+        ], $events);
+        $this->assertSame($pageViewId, $this->sessionData['page_view_id_thanks']);
+        $this->assertTrackingVariables([
+            'pixelId' => 'fb-pixel-123',
+            'externalId' => 'v_test123',
+            'phoneCapi' => '94771234567',
+            'country' => 'lk',
+            'pageViewEventId' => $pageViewId,
+            'gaMeasurementId' => 'G-TEST123',
+            'regId' => 'reg-test-12345',
+            'eventData' => '{"currency":"USD","value":"5"}',
+        ], $this->controller->renderData);
+        $this->assertSame([
+            ['New page visit. /thanks', ['ip' => '127.0.0.1', 'useragent' => 'TestAgent']],
+            ['New PageView triggered. /thanks', ['page_view_id' => $pageViewId, 'phone_for_matching' => '94771234567']],
+            ['CompleteRegistration event triggered.', ['reg_id' => 'reg-test-12345']],
+            ['Thank You page reached. Conversion successful.', ['app' => 'app1']],
+        ], $logs);
+    }
+
+    public function testShowThankYouPageWithoutCapiStillRendersThePixelConversion(): void
+    {
+        $tracker = new AnalyticsTrackerService(
+            $this->config,
+            null,
+            $this->userInfoServiceMock,
+            $this->sessionServiceMock,
+            $this->userLoggerMock,
+            $this->loggerMock
+        );
+        $controller = new TestableThankYouController(
+            $this->config,
+            $tracker,
+            $this->loggerMock,
+            $this->sessionServiceMock,
+            new OtpFlowState($this->sessionServiceMock)
+        );
+        $this->sessionData = [
+            'reg_id' => 'reg-test-12345',
+            'phone_data' => self::phone(capiFormat: '94771234567', value: 5.0),
+            'visitor_id' => 'v_test123',
+        ];
+
+        $controller->showThankYouPage(Request::createFromGlobals());
+
+        $this->assertTrackingVariables([
+            'pixelId' => 'fb-pixel-123',
+            'externalId' => 'v_test123',
+            'phoneCapi' => '94771234567',
+            'country' => 'lk',
+            'pageViewEventId' => null,
+            'gaMeasurementId' => 'G-TEST123',
+            'regId' => 'reg-test-12345',
+            'eventData' => '{"currency":"USD","value":"5"}',
+        ], $controller->renderData);
+        $this->assertArrayNotHasKey('page_view_id_thanks', $this->sessionData);
+    }
+
     public function testShowThankYouPageSuccess(): void
     {
         $this->sessionData = [
@@ -171,6 +282,30 @@ class ThankYouControllerTest extends TestCase
         // lead_id is NOT cleared by the controller, so we expect it to remain or we just don't check it.
         $this->assertArrayHasKey('lead_id', $this->sessionData);
         $this->assertArrayHasKey('phone_data', $this->sessionData);
+    }
+
+    public function testShowThankYouPageWithAnErrorFlashStillSendsThePageView(): void
+    {
+        $this->sessionData = [
+            'reg_id' => 'reg-test-12345',
+            'phone_data' => self::phone(capiFormat: '94771234567', value: 5.0),
+            'visitor_id' => 'v_test123',
+            'error_message' => 'An earlier error',
+        ];
+        $events = [];
+        $this->capiServiceMock->expects($this->exactly(2))->method('sendEvent')
+            ->willReturnCallback(function (string $name, string $id) use (&$events): array {
+                $events[] = [$name, $id];
+                return [];
+            });
+        $this->loggerMock->expects($this->never())->method('notice');
+
+        $this->controller->showThankYouPage(Request::createFromGlobals());
+
+        $this->assertSame('PageView', $events[0][0]);
+        $this->assertStringStartsWith('pgview-thanks-', $events[0][1]);
+        $this->assertSame(['CompleteRegistration', 'reg-test-12345'], $events[1]);
+        $this->assertSame($events[0][1], $this->controller->renderData['pageViewEventId']);
     }
 }
 

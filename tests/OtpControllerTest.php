@@ -6,6 +6,7 @@ namespace App\Tests\Controller;
 
 use PHPUnit\Framework\TestCase;
 use Tests\Support\SessionFixtures;
+use Tests\Support\TrackingVariables;
 use App\Service\OtpFlowState;
 use App\Enum\SessionKey;
 use App\Controller\OtpController;
@@ -51,6 +52,7 @@ class TestableOtpController extends OtpController
 class OtpControllerTest extends TestCase
 {
     use SessionFixtures;
+    use TrackingVariables;
 
     private TestableOtpController $controller;
     private array $config;
@@ -82,7 +84,8 @@ class OtpControllerTest extends TestCase
         $this->config = [
             'facebook' => ['test_event_code' => 'TEST123', 'pixel_id' => 'fb-pixel-123'],
             'api' => ['ideamart' => [self::PRIMARY_API_URL, self::FALLBACK_API_URL]],
-            'sms' => ['number' => '77000', 'keyword' => 'chat']
+            'sms' => ['number' => '77000', 'keyword' => 'chat'],
+            'google' => ['ga_measurement_id' => 'G-TEST123'],
         ];
 
         $this->otpServiceMock = $this->createMock(OtpApiService::class);
@@ -197,6 +200,129 @@ class OtpControllerTest extends TestCase
         $this->assertArrayNotHasKey(SessionKey::LEAD_ID->value, $this->sessionData);
         $this->assertArrayHasKey('page_view_id_otp', $this->sessionData);
         $this->assertEquals('csrf-token-123', $this->controller->renderData['csrfToken']);
+    }
+
+    public function testShowOtpFormPinsThePageViewTheLeadAndTheLayoutVariables(): void
+    {
+        $this->sessionData = [
+            SessionKey::OTP_TOKEN->value => self::token(referenceNo: 'test-ref-123'),
+            SessionKey::LEAD_ID->value => 'lead-abc-999',
+            SessionKey::PHONE_DATA->value => self::phone(capiFormat: '94771234567', value: 5.0),
+            SessionKey::VISITOR_ID->value => 'v_test123',
+            SessionKey::FBP->value => 'fb.1.session_fbp',
+            SessionKey::FBC->value => 'fb.1.session_fbc',
+        ];
+        $request = Request::createFromGlobals();
+        $this->csrfServiceMock->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->method('processRequest')
+            ->willReturn(['fbc' => 'fb.1.request_fbc', 'fbp' => null, 'client_ip_address' => '10.0.0.9']);
+
+        $events = [];
+        $this->capiServiceMock->expects($this->exactly(2))->method('sendEvent')
+            ->willReturnCallback(function (string $name, string $id, string $url, array $userData, ?array $customData = null) use (&$events): array {
+                $events[] = [$name, $id, $url, $userData, $customData];
+                return [];
+            });
+        $logs = [];
+        $this->loggerMock->method('info')->willReturnCallback(function (string $message, array $context = []) use (&$logs): void {
+            $logs[] = [$message, $context];
+        });
+
+        $this->controller->showOtpForm($request);
+
+        $pageViewId = $events[0][1];
+        $this->assertMatchesRegularExpression('/^pgview-otp-[0-9a-f]{32}$/', $pageViewId);
+        $this->assertSame([
+            ['PageView', $pageViewId, $request->getUri(), [
+                'ip' => '10.0.0.9',
+                'agent' => 'TestAgent',
+                'phone' => '94771234567',
+                'fbp' => 'fb.1.session_fbp',
+                'fbc' => 'fb.1.request_fbc',
+                'external_id' => 'v_test123',
+                'country' => 'lk',
+            ], null],
+            // Lead reads fbp/fbc from the session, where the PageView just stored the request's fbc.
+            ['Lead', 'lead-abc-999', $request->getUri(), [
+                'ip' => '10.0.0.9',
+                'agent' => 'TestAgent',
+                'phone' => '94771234567',
+                'fbp' => 'fb.1.session_fbp',
+                'fbc' => 'fb.1.request_fbc',
+                'external_id' => 'v_test123',
+                'country' => 'lk',
+            ], ['currency' => 'USD', 'value' => '5']],
+        ], $events);
+        $this->assertSame($pageViewId, $this->sessionData[SessionKey::PAGE_VIEW_ID_OTP->value]);
+        $this->assertTrackingVariables([
+            'pixelId' => 'fb-pixel-123',
+            'externalId' => 'v_test123',
+            'phoneCapi' => '94771234567',
+            'country' => 'lk',
+            'pageViewEventId' => $pageViewId,
+            'gaMeasurementId' => 'G-TEST123',
+            'leadEventId' => 'lead-abc-999',
+        ], $this->controller->renderData);
+        $this->assertSame([
+            ['New page visit. /otp', ['ip' => '127.0.0.1', 'useragent' => 'TestAgent']],
+            ['New PageView triggered. /otp', ['page_view_id' => $pageViewId, 'phone_for_matching' => '94771234567']],
+            ['Lead event triggered.', ['lead_id' => 'lead-abc-999', 'phone' => '94771234567']],
+        ], $logs);
+    }
+
+    public function testShowOtpFormWithAnErrorSkipsThePageViewButSendsThePendingLead(): void
+    {
+        // SMS fallback entered at the request step with a flash: the first /otp render shows an error.
+        $this->sessionData = [
+            SessionKey::OTP_TOKEN->value => true,
+            SessionKey::SHOW_SMS_LINK->value => true,
+            SessionKey::LEAD_ID->value => 'lead-abc-999',
+            SessionKey::PHONE_DATA->value => self::phone(capiFormat: '94771234567', value: 5.0),
+            SessionKey::VISITOR_ID->value => 'v_test123',
+            SessionKey::FBP->value => 'fb.1.session_fbp',
+            SessionKey::FBC->value => 'fb.1.session_fbc',
+            SessionKey::ERROR_MESSAGE->value => 'Send the SMS instead.',
+            SessionKey::PAGE_VIEW_ID_OTP->value => 'pgview-otp-earlier',
+        ];
+        $request = Request::createFromGlobals();
+        $this->csrfServiceMock->method('getToken')->willReturn('csrf-token-123');
+        $this->capiServiceMock->method('processRequest')
+            ->willReturn(['fbc' => 'fb.1.request_fbc', 'fbp' => null, 'client_ip_address' => '10.0.0.9']);
+
+        $events = [];
+        $this->capiServiceMock->expects($this->once())->method('sendEvent')
+            ->willReturnCallback(function (string $name, string $id, string $url, array $userData, ?array $customData = null) use (&$events): array {
+                $events[] = [$name, $id, $url, $userData, $customData];
+                return [];
+            });
+        $notices = [];
+        $this->loggerMock->method('notice')->willReturnCallback(function (string $message, array $context = []) use (&$notices): void {
+            $notices[] = [$message, $context];
+        });
+
+        $this->controller->showOtpForm($request);
+
+        $this->assertSame([
+            ['Lead', 'lead-abc-999', $request->getUri(), [
+                'ip' => '10.0.0.9',
+                'agent' => 'TestAgent',
+                'phone' => '94771234567',
+                'fbp' => 'fb.1.session_fbp',
+                'fbc' => 'fb.1.session_fbc',
+                'external_id' => 'v_test123',
+                'country' => 'lk',
+            ], ['currency' => 'USD', 'value' => '5']],
+        ], $events);
+        $this->assertTrackingVariables([
+            'pixelId' => 'fb-pixel-123',
+            'externalId' => 'v_test123',
+            'phoneCapi' => '94771234567',
+            'country' => 'lk',
+            'pageViewEventId' => 'pgview-otp-earlier',
+            'gaMeasurementId' => 'G-TEST123',
+            'leadEventId' => 'lead-abc-999',
+        ], $this->controller->renderData);
+        $this->assertSame(['Rendering /otp to display error, skipping new PageView.', ['error' => 'Send the SMS instead.']], $notices[0]);
     }
 
     public function testShowOtpFormNotFireEventsWhenCapiServiceNull(): void
