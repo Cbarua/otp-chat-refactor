@@ -55,7 +55,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Method**: `showPhoneForm()`
 *   **Actions**:
     *   **Session Setup**: Generates or retrieves long-lived `visitor_id`.
-    *   **Facebook CAPI**: Calls `AnalyticsTrackerService::trackPageView()`. Fires `PageView` CAPI event with customer match keys (`ip`, `agent`, `external_id`). Skips `PageView` if there is a pending `error_message`.
+    *   **Facebook CAPI**: Calls `AnalyticsTrackerService::trackPhoneForm()`, which returns the Pixel and GA variables for the view. Fires `PageView` CAPI event with customer match keys (`ip`, `agent`, `external_id`). Skips `PageView` if there is a pending `error_message`.
     *   **View Preparation**: Renders `phone_form.php` template with CSRF token, GA Measurement ID, Pixel configs, and normalized carrier formats.
     *   **Session Cleanup**: Clears the flash (`error_message`, `already_registered`) and, through `OtpFlowState::resetAttempts()`, the invalid OTP count and SMS fallback (`invalid_otp_count`, `show_sms_link`).
 
@@ -99,7 +99,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Method**: `showOtpForm()`
 *   **Prerequisites**: Requires `otp_token` in session. If absent, logs error and redirects to `/`.
 *   **Actions**:
-    *   **CAPI Events (`handleCapiEvents`)**:
+    *   **CAPI Events (`trackOtpForm()`)**:
         *   `PageView`: Fires `PageView` CAPI event for `/otp` with customer match data (skipped if displaying error).
         *   `Lead`: If `OtpFlowState::takeLeadId()` returns a pending `lead_id` (it clears it), fires the `Lead` event to Facebook CAPI and gives the Pixel the same id.
     *   **SMS Fallback Render**: If `$config['sms']` is configured and `show_sms_link` is true, renders the SMS link instructions instead of the OTP input field.
@@ -145,7 +145,7 @@ Both steps of the OTP flow live in `App\Service\OtpFlowService`: `requestOtp()` 
 *   **Actions**:
     *   **Facebook CAPI Events**:
         *   Fires `PageView` event for `/thanks`.
-        *   Fires `CompleteRegistration` event using `reg_id` as event ID, sending conversion metadata (`currency => 'USD'`, `value => '0.01'`).
+        *   Fires `CompleteRegistration` event using `reg_id` as event ID, sending conversion metadata (`currency => 'USD'`, `value` = the carrier's conversion value).
     *   **View Preparation**: Renders `thanks.php` view.
     *   **Session Cleanup**: `OtpFlowState::finish()` unsets `reg_id` and `otp_token` to prevent re-firing conversion events on page refresh; `phone_data` stays.
 
@@ -207,4 +207,4 @@ Owns the OTP flow's session keys, through `SessionService`. Sessions in flight h
 *   `invalid_otp_count`: Failed OTP attempt counter.
 *   `show_sms_link`: Boolean toggle for rendering SMS fallback.
 
-`visitor_id` (the anonymous long-lived tracking ID), the flash and the analytics ids stay with `SessionService`. `AnalyticsTrackerService` also reads `phone_data` itself, as the fallback for a PageView without a phone.
+`visitor_id` (the anonymous long-lived tracking ID), the flash and the analytics ids stay with `SessionService`.

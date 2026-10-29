@@ -1,7 +1,7 @@
 <?php
 // templates/phone_form.php
 
-// This template has access to $config, $pageViewEventId, $testEventCode, $errorMessage, etc.
+// This template has access to $config, $pageViewEventId, $errorMessage, etc.
 $phoneJsPath = __DIR__ . '/../public/assets/js/phone-form.js';
 $phoneJsVer = file_exists($phoneJsPath) ? filemtime($phoneJsPath) : '1.0';
 ?>

@@ -50,21 +50,11 @@ class OtpController extends BaseController
             return $this->redirect('./');
         }
 
-        $this->analyticsTracker->trackPageView(
+        $tracking = $this->analyticsTracker->trackOtpForm(
             $request,
-            '/otp',
-            'pgview-otp-',
-            null,
-            false,
-            true,
-            SessionKey::PAGE_VIEW_ID_OTP
+            $this->otpFlowState->phone(),
+            $this->otpFlowState->takeLeadId()
         );
-
-        $phone = $this->otpFlowState->phone();
-        $leadId = $this->otpFlowState->takeLeadId();
-        if ($leadId !== null && $phone !== null) {
-            $this->analyticsTracker->trackLead($request, $phone, $leadId);
-        }
 
         $smsNumber = $this->config['sms']['number'] ?? null;
         $smsKeyword = $this->config['sms']['keyword'] ?? null;
@@ -83,20 +73,12 @@ class OtpController extends BaseController
         $data = [
             'config' => $this->config,
             'title' => 'OTP Form',
-            'leadEventId' => $leadId,
-            'pageViewEventId' => $this->session->get(SessionKey::PAGE_VIEW_ID_OTP),
-            'phoneCapi' => $phone?->capiFormat,
-            'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
-            'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
-            'externalId' => $this->session->get(SessionKey::VISITOR_ID),
-            'country' => 'lk',
             'errorMessage' => $this->session->get(SessionKey::ERROR_MESSAGE),
             'csrfToken' => $this->csrfService->getToken(),
-            'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
             'showSmsLink' => $showSmsLink,
             'smsNumber' => $smsNumber,
             'smsKeyword' => $smsKeyword,
-        ];
+        ] + $tracking;
 
         $this->session->unset(SessionKey::ERROR_MESSAGE);
 

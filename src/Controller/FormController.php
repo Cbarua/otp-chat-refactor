@@ -37,31 +37,16 @@ class FormController extends BaseController
      */
     public function showPhoneForm(Request $request): Response
     {
-        $isInitialVisit = !($this->session->has(SessionKey::ALREADY_REGISTERED) || $this->session->has(SessionKey::ERROR_MESSAGE));
-        $this->analyticsTracker->trackPageView(
-            $request,
-            '/',
-            'pgview-',
-            null,
-            $isInitialVisit,
-            true
-        );
+        $tracking = $this->analyticsTracker->trackPhoneForm($request, $this->otpFlowState->phone());
 
         // Prepare data for the view
         $data = [
             'config' => $this->config,
             'title' => 'Welcome',
-            'pageViewEventId' => $this->session->get(SessionKey::PAGE_VIEW_ID),
-            'pixelId' => $this->config['facebook']['pixel_id'] ?? null,
-            'testEventCode' => $this->config['facebook']['test_event_code'] ?? null,
             'errorMessage' => $this->session->get(SessionKey::ERROR_MESSAGE),
             'alreadyRegistered' => $this->session->get(SessionKey::ALREADY_REGISTERED),
-            'phoneCapi' => $this->otpFlowState->phone()?->capiFormat,
-            'externalId' => $this->session->get(SessionKey::VISITOR_ID),
-            'country' => 'lk',
             'csrfToken' => $this->csrfService->getToken(),
-            'gaMeasurementId' => $this->config['google']['ga_measurement_id'] ?? null,
-        ];
+        ] + $tracking;
 
         // Clear session data after displaying it
         $this->session->unset(SessionKey::ERROR_MESSAGE);
