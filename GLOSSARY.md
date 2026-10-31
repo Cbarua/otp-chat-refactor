@@ -1,6 +1,6 @@
 # OTP Chat
 
-An SMS-OTP subscription landing page: a visitor submits a Sri Lankan or Bangladeshi mobile number, receives a one-time PIN through the carrier's OTP provider, and confirms it to subscribe. Conversions are reported to Meta and Google.
+An SMS-OTP subscription landing page: a visitor submits a Sri Lankan mobile number, receives a one-time PIN through the carrier's OTP provider, and confirms it to subscribe. Conversions are reported to Meta and Google.
 
 ## Language
 
